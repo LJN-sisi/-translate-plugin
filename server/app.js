@@ -583,10 +583,28 @@ debugRouter.get('/performance', (req, res) => {
 
 app.use('/api/debug', debugRouter);
 
-// 下载插件
+// 下载插件 - 返回 manifest.json 让用户下载
 app.get('/api/download', (req, res) => {
     const pluginDir = path.join(__dirname, '..', 'ai-translator');
-    res.json({ success: false, error: '插件目录不存在' });
+    const fs = require('fs');
+    
+    if (!fs.existsSync(pluginDir)) {
+        return res.json({ success: false, error: '插件目录不存在' });
+    }
+    
+    // 返回插件信息，引导用户从GitHub下载
+    res.json({ 
+        success: true, 
+        message: '请从 GitHub 下载插件',
+        url: 'https://github.com/LJN-sisi/-translate-plugin/archive/refs/heads/main.zip',
+        files: fs.readdirSync(pluginDir)
+    });
+});
+
+// 提供插件文件下载
+app.get('/api/download/manifest.json', (req, res) => {
+    const manifestPath = path.join(__dirname, '..', 'ai-translator', 'manifest.json');
+    res.download(manifestPath);
 });
 
 // 启动服务器
