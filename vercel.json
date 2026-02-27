@@ -12,12 +12,8 @@
             "dest": "server/app.js"
         },
         {
-            "src": "/ai-translator/(.*)",
-            "dest": "server/app.js"
-        },
-        {
-            "src": "/((?!api).*)",
-            "dest": "index.html"
+            "src": "/(.*)",
+            "dest": "/index.html"
         }
     ],
     "env": {
