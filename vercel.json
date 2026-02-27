@@ -1,0 +1,26 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "server/app.js",
+            "use": "@vercel/node"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "server/app.js"
+        },
+        {
+            "src": "/ai-translator/(.*)",
+            "dest": "server/app.js"
+        },
+        {
+            "src": "/((?!api).*)",
+            "dest": "index.html"
+        }
+    ],
+    "env": {
+        "NODE_ENV": "production"
+    }
+}

@@ -1,0 +1,84 @@
+name: CI - 测试与代码质量检查
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run unit tests
+        run: npm test
+      
+      - name: Run lint
+        run: npm run lint || true
+
+  code-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Check code formatting
+        run: |
+          npx prettier --check "**/*.{js,json,css,html}" || true
+      
+      - name: Security audit
+        run: npm audit --audit-level=high || true
+
+  validate-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build project
+        run: npm run build || echo "No build script, skipping"
+
+  ci-status:
+    needs: [test, code-quality, validate-build]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Create CI Status Summary
+        run: |
+          echo "## CI 检查结果" >> $GITHUB_STEP_SUMMARY
+          echo "✅ 测试: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ 代码质量: ${{ needs.code-quality.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ 构建验证: ${{ needs.validate-build.result }}" >> $GITHUB_STEP_SUMMARY

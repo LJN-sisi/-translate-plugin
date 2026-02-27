@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TranslatePlugin - 由你进化</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&family=Space+Grotesk:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- 科技感背景装饰 -->
+    <div class="tech-background">
+        <div class="data-points">
+            <span class="data-point"></span>
+            <span class="data-point"></span>
+            <span class="data-point"></span>
+            <span class="data-point"></span>
+        </div>
+        <div class="code-floating" style="top: 15%; left: 5%;">function translate() {}</div>
+        <div class="code-floating" style="top: 30%; right: 8%;">AI.process(feedback)</div>
+        <div class="code-floating" style="top: 50%; left: 3%;">const language = 'zh'</div>
+        <div class="code-floating" style="top: 70%; right: 5%;">export default plugin</div>
+    </div>
+
+    <!-- Navigation -->
+    <nav id="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                TranslatePlugin<span class="logo-dot"></span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#product">产品解码</a></li>
+                <li><a href="#feedback">反馈光谱</a></li>
+                <li><a href="#agent">进化节点</a></li>
+            </ul>
+            <button class="mobile-menu-btn" id="mobileMenuBtn">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Mobile Menu -->
+    <div class="mobile-menu" id="mobileMenu">
+        <a href="#product">产品解码</a>
+        <a href="#feedback">反馈光谱</a>
+        <a href="#agent">进化节点</a>
+    </div>
+
+    <!-- Hero Section -->
+    <section id="hero">
+        <div class="hero-content">
+            <div class="hero-top">
+                <span class="status-dot"></span>
+                <span class="status-text">翻译插件</span>
+                <span class="status-text">今日已处理 <span id="todayCount">47</span> 条反馈</span>
+            </div>
+            <h1 class="hero-title">由你进化</h1>
+            <p class="hero-subtitle">你的每一次反馈，都在重写代码</p>
+            <div class="hero-buttons">
+                <a href="#" class="btn btn-outline">开始翻译</a>
+                <a href="#timeline" class="btn btn-primary">查看进化轨迹</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- AI Agent Section -->
+    <section id="agent">
+        <div class="agent-container">
+            <!-- Left Column - Real-time Feedback Stream -->
+            <div class="agent-column agent-column-left" id="feedbackStream">
+                <div class="column-header">
+                    <span class="live-dot"></span>
+                    实时意见流
+                </div>
+                <div class="column-content" id="agentFeedbackList">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Right Column - AI Agent Stream Output -->
+            <div class="agent-column agent-column-right" id="agentStream">
+                <div class="column-header">
+                    <span class="ai-dot"></span>
+                    智能体流式输出
+                </div>
+                <div class="column-content stream-content" id="streamOutput">
+                    <div class="stream-welcome">
+                        <div class="stream-prompt">$</div>
+                        <div class="stream-text">等待反馈输入，触发智能体处理...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feedback Plaza Section -->
+    <section id="feedback">
+        <div class="feedback-container">
+            <!-- Left Column - Feedback List -->
+            <div class="feedback-main">
+                <h2 class="section-title">反馈<span class="highlight">光谱</span></h2>
+                
+                <!-- Input Box -->
+                <div class="feedback-input-wrapper">
+                    <span class="input-prompt">$</span>
+                    <input type="text" id="feedbackInput" class="feedback-input" placeholder="输入你的反馈 >" maxlength="280">
+                    <button class="submit-btn" id="submitFeedback" disabled>&gt;</button>
+                </div>
+                <div class="char-count"><span id="charCount">0</span>/280</div>
+
+                <!-- Filter Tabs -->
+                <div class="filter-tabs">
+                    <button class="filter-tab active" data-filter="all">全部</button>
+                    <button class="filter-tab" data-filter="pending">待处理</button>
+                    <button class="filter-tab" data-filter="processed">已处理</button>
+                </div>
+
+                <!-- Feedback List -->
+                <div class="feedback-list" id="feedbackList">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Right Column - Stats Panel -->
+            <div class="feedback-sidebar">
+                <!-- 面板已清空，为后续扩展预留 -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Product Section -->
+    <section id="product">
+        <div class="product-container">
+            <h2 class="section-title">产品解码</h2>
+            <div class="product-grid">
+                <div class="product-card">
+                    <h3 class="card-title">AI翻译</h3>
+                    <p class="card-desc">DeepSeek AI + Alt+T 快捷翻译</p>
+                    <div class="code-block">
+                        <code>Alt+T 快捷翻译<br>选中文本即译</code>
+                    </div>
+                </div>
+                <div class="product-card">
+                    <h3 class="card-title">多语言支持</h3>
+                    <p class="card-desc">中文、英文、日语、韩语等</p>
+                    <div class="code-block">
+                        <code>zh ↔ en ↔ ja ↔ ko<br>多语言互译</code>
+                    </div>
+                </div>
+                <div class="product-card">
+                    <h3 class="card-title">反馈驱动</h3>
+                    <p class="card-desc">你的反馈推动产品持续进化</p>
+                    <div class="code-block">
+                        <code>submitFeedback()<br>→ 产品优化</code>
+                    </div>
+                </div>
+                <div class="product-card">
+                    <h3 class="card-title">隐私保护</h3>
+                    <p class="card-desc">API Key 仅本地存储</p>
+                    <div class="code-block">
+                        <code>// 数据仅本地处理<br>// 不收集用户信息</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Timeline Section -->
+    <section id="timeline">
+        <div class="timeline-container">
+            <h2 class="section-title">进化轨迹</h2>
+            <p class="timeline-subtitle">记录每一次产品迭代</p>
+            
+            <!-- 自动刷新状态 -->
+            <div class="auto-refresh-status" id="autoRefreshStatus">
+                <span class="refresh-indicator"></span>
+                <span class="refresh-text">自动更新中</span>
+            </div>
+            
+            <!-- 版本时间线 - 动态生成 -->
+            <div class="version-timeline" id="versionTimeline">
+                <div class="timeline-line"></div>
+                <div class="timeline-loading">正在加载进化轨迹...</div>
+            </div>
+
+            <!-- 版本详情 -->
+            <div class="version-details" id="versionDetails">
+                <div class="version-placeholder">选择版本节点查看详情</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <p class="footer-brand">TranslatePlugin — 每一次使用，都是一次进化</p>
+            <p class="footer-copyright">&copy; 2024 TranslatePlugin. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

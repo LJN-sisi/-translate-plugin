@@ -1,0 +1,10 @@
+{
+  "id": "snap_1772123272169_test_feature",
+  "name": "test-feature",
+  "createdAt": "2026-02-26T16:27:52.179Z",
+  "files": [
+    "index.html",
+    "styles.css",
+    "app.js"
+  ]
+}
