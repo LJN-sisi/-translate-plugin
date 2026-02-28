@@ -732,9 +732,11 @@ app.post('/api/agent/process/stream', async (req, res) => {
         // 调用完整的智能体流程
         if (agent) {
             sendToClient(clientId, 'stage', { stage: 'analyzing', message: '正在分析反馈...' });
+            console.log('[流式] 开始调用智能体处理:', feedback.content);
             
             // 启动完整智能体处理流程
             agent.process(feedback).then(async (result) => {
+                console.log('[流式] 智能体处理完成:', result);
                 console.log('[流式] 智能体处理完成:', result);
                 
                 if (result.needsHuman) {
