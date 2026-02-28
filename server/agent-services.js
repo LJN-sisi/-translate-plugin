@@ -186,24 +186,38 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const GITHUB_REPO = 'https://github.com/LJN-sisi/ai-translator';
-const WORK_DIR = path.join(__dirname, '..', 'repo');
+// 使用网站根目录作为工作目录
+const WORK_DIR = path.join(__dirname, '..');
 
 class CodeModifier {
     constructor() {
         this.repoDir = WORK_DIR;
-        this.ensureRepo();
+        console.log(`[CodeModifier] 工作目录: ${this.repoDir}`);
     }
 
     ensureRepo() {
-        if (!fs.existsSync(this.repoDir)) {
-            console.log(`[CodeModifier] 克隆仓库: ${GITHUB_REPO}`);
-            fs.mkdirSync(this.repoDir, { recursive: true });
+        // 检查是否是git仓库
+        const gitDir = path.join(this.repoDir, '.git');
+        if (!fs.existsSync(gitDir)) {
+            console.log(`[CodeModifier] 初始化Git仓库: ${this.repoDir}`);
             try {
-                execSync(`git clone ${GITHUB_REPO} .`, { cwd: this.repoDir, stdio: 'pipe', encoding: 'utf8' });
-                console.log('[CodeModifier] 仓库克隆成功');
+                execSync(`git init`, { cwd: this.repoDir, stdio: 'pipe' });
+                execSync(`git remote add origin ${GITHUB_REPO}`, { cwd: this.repoDir, stdio: 'pipe' });
+                execSync(`git fetch origin`, { cwd: this.repoDir, stdio: 'pipe' });
+                execSync(`git checkout -b main origin/main 2>/dev/null || git checkout -b main`, { cwd: this.repoDir, stdio: 'pipe' });
+                console.log('[CodeModifier] Git仓库初始化成功');
             } catch (e) {
-                console.log('[CodeModifier] 仓库克隆失败:', e.message);
+                console.log('[CodeModifier] Git仓库初始化失败:', e.message);
             }
+        }
+        
+        // 每次同步最新代码
+        try {
+            execSync(`git fetch origin`, { cwd: this.repoDir, stdio: 'pipe' });
+            execSync(`git reset --hard origin/main`, { cwd: this.repoDir, stdio: 'pipe' });
+            console.log('[CodeModifier] 已同步最新代码');
+        } catch (e) {
+            console.log('[CodeModifier] 同步失败，可能首次运行:', e.message);
         }
     }
 
@@ -224,15 +238,7 @@ class CodeModifier {
         try {
             this.ensureRepo();
             
-            const branchName = `feedback-${feedbackId.substring(0, 8)}-${Date.now()}`;
-            console.log(`[CodeModifier] 创建分支: ${branchName}`);
-            
-            try {
-                execSync(`git checkout -b ${branchName}`, { cwd: this.repoDir, stdio: 'pipe' });
-            } catch (e) {
-                execSync(`git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName}`, { cwd: this.repoDir, stdio: 'pipe' });
-            }
-            
+            // 直接在main分支上修改并推送
             let actualChange = false;
             let linesAdded = 0;
             let linesRemoved = 0;
@@ -242,14 +248,19 @@ class CodeModifier {
                 const dir = path.dirname(targetFile);
                 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
                 
+                // 记录修改前的行数
+                let originalContent = '';
+                if (fs.existsSync(targetFile)) {
+                    originalContent = fs.readFileSync(targetFile, 'utf8');
+                    linesRemoved = originalContent.split('\n').length;
+                }
+                
                 if (sol.action === 'insert') {
-                    const existing = fs.existsSync(targetFile) ? fs.readFileSync(targetFile, 'utf8') : '';
-                    fs.writeFileSync(targetFile, existing + '\n' + sol.codeBlock);
-                    linesAdded = sol.codeBlock.split('\n').length;
+                    fs.writeFileSync(targetFile, originalContent + '\n' + sol.codeBlock);
                 } else {
                     fs.writeFileSync(targetFile, sol.codeBlock);
-                    linesAdded = sol.codeBlock.split('\n').length;
                 }
+                linesAdded = sol.codeBlock.split('\n').length;
                 
                 actualChange = true;
                 console.log(`[CodeModifier] 已修改文件: ${sol.file}`);
@@ -262,13 +273,21 @@ class CodeModifier {
                     execSync(`git commit -m "Auto: ${sol.description || 'Code improvement from feedback'}"`, { cwd: this.repoDir, stdio: 'pipe' });
                     commitHash = execSync(`git rev-parse HEAD`, { cwd: this.repoDir, encoding: 'utf8' }).trim();
                     console.log(`[CodeModifier] 提交成功: ${commitHash.substring(0, 7)}`);
+                    
+                    // 推送到GitHub main分支
+                    try {
+                        execSync(`git push origin main`, { cwd: this.repoDir, stdio: 'pipe' });
+                        console.log(`[CodeModifier] 已推送到GitHub`);
+                    } catch (pushErr) {
+                        console.log(`[CodeModifier] 推送失败，可能需要配置GitHub Token:`, pushErr.message);
+                    }
                 } catch (e) {
                     console.log('[CodeModifier] 提交失败:', e.message);
                 }
             }
             
             const modified = {
-                branch: branchName,
+                branch: 'main',
                 file: sol.file,
                 commit: commitHash,
                 changes: { action: sol.action || 'replace', linesAdded, linesRemoved, actualChange },
