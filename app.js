@@ -1,7 +1,9 @@
 // ============================================
 // API Configuration - 智能体后端服务
 // ============================================
-const API_BASE = 'http://localhost:3001'; // 本地后端服务地址
+const API_BASE = window.location.hostname === 'localhost' 
+    ? 'http://localhost:3001' 
+    : `http://${window.location.hostname}:3001`; // 根据环境自动选择API地址
 
 const API_CONFIG = {
     // 意见相关 API
@@ -41,13 +43,24 @@ const API_CONFIG = {
     }
 };
 
-// 模拟 API 调用 - 后期替换为真实 fetch
+// 真实 API 调用
 const API = {
     async request(endpoint, options = {}) {
-        console.log(`[API] ${options.method || 'GET'} ${endpoint}`, options.body || '');
-        // TODO: 替换为真实 API 调用
-        // return await fetch(endpoint, options);
-        return { success: true };
+        const url = API_BASE + endpoint;
+        console.log(`[API] ${options.method || 'GET'} ${url}`, options.body || '');
+        try {
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                }
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('[API] 请求失败:', error);
+            return { success: false, error: error.message };
+        }
     }
 };
 
