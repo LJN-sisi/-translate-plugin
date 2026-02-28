@@ -1,9 +1,8 @@
 // ============================================
 // API Configuration - 智能体后端服务
 // ============================================
-const API_BASE = window.location.hostname === 'localhost' 
-    ? 'http://localhost:3001' 
-    : `http://${window.location.hostname}:3001`; // 根据环境自动选择API地址
+// 使用相对路径，自动适配当前服务器
+const API_BASE = '';
 
 const API_CONFIG = {
     // 意见相关 API
