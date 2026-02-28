@@ -298,7 +298,7 @@ class CodeModifier {
             await database.addTaskStage(taskId, { name: 'apply_changes', status: 'completed', endTime: new Date().toISOString(), data: modified });
             await database.updateTaskLog(taskId, { status: 'modified', result: modified });
             
-            return { success: true, taskId, branch: branchName, file: sol.file, changes: modified.changes };
+            return { success: true, taskId, branch: 'main', file: sol.file, changes: modified.changes };
         } catch (error) {
             await database.addTaskStage(taskId, { name: 'apply_changes', status: 'failed', endTime: new Date().toISOString(), data: { error: error.message } });
             await database.updateTaskLog(taskId, { status: 'failed', error: error.message });

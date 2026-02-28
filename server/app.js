@@ -729,77 +729,103 @@ app.post('/api/agent/process/stream', async (req, res) => {
         agentStats.todayProcessed++;
         agentStats.lastUpdate = new Date().toISOString();
 
-        // ===== 步骤1: 意图分析 =====
-        sendToClient(clientId, 'stage', { stage: 'analyzing', message: '正在分析反馈意图...' });
-        
-        const intentResult = await analyzeIntent(content);
-        
-        feedback.status = 'generating';
-        feedback.intent = intentResult.intent;
-        feedback.confidence = intentResult.confidence;
-
-        sendToClient(clientId, 'intent', { 
-            intent: intentResult.intent, 
-            confidence: intentResult.confidence,
-            message: `识别到问题类型: ${intentResult.intent}`
-        });
-
-        // ===== 步骤2: 生成代码建议 (流式) =====
-        sendToClient(clientId, 'stage', { stage: 'generating', message: '正在生成代码改进建议...' });
-
-        // 使用流式AI调用
-        const streamSuggestion = await generateCodeSuggestionStream(content, intentResult.intent, (chunk) => {
-            sendToClient(clientId, 'code_chunk', { chunk });
-        });
-
-        feedback.codeSuggestion = streamSuggestion;
-        
-        sendToClient(clientId, 'stage', { stage: 'generated', message: '代码建议生成完成' });
-        sendToClient(clientId, 'suggestion', streamSuggestion);
-
-        // ===== 步骤3: 测试 (如果启用) =====
-        if (autoTest) {
-            feedback.status = 'testing';
-            sendToClient(clientId, 'stage', { stage: 'testing', message: '正在运行自动化测试...' });
-
-            // 模拟测试过程发送进度
-            for (let i = 1; i <= 3; i++) {
-                await new Promise(r => setTimeout(r, 500));
-                sendToClient(clientId, 'test_progress', { progress: i * 33, message: `测试进度: ${i * 33}%` });
-            }
-
-            const testResult = await runAutoTests();
-            const action = handleTestResult(testResult, feedbackId);
+        // 调用完整的智能体流程
+        if (agent) {
+            sendToClient(clientId, 'stage', { stage: 'analyzing', message: '正在分析反馈...' });
             
-            sendToClient(clientId, 'test_result', { 
-                passed: testResult.success,
-                message: testResult.message 
+            // 启动完整智能体处理流程
+            agent.process(feedback).then(async (result) => {
+                console.log('[流式] 智能体处理完成:', result);
+                
+                if (result.needsHuman) {
+                    sendToClient(clientId, 'stage', { stage: 'needs_human', message: '需要人工处理' });
+                    sendToClient(clientId, 'complete', { feedbackId, status: 'needs_human', result });
+                    return;
+                }
+                
+                if (result.success) {
+                    // 显示分析结果
+                    sendToClient(clientId, 'intent', { 
+                        intent: result.result?.analysis?.intent || 'other',
+                        confidence: result.result?.analysis?.confidence || 0.5,
+                        message: 'AI分析完成'
+                    });
+                    
+                    // 显示代码修改
+                    if (result.result?.modification) {
+                        sendToClient(clientId, 'suggestion', {
+                            file: result.result.modification.file,
+                            action: result.result.solution?.action,
+                            description: result.result.solution?.description
+                        });
+                    }
+                    
+                    // 显示测试结果
+                    if (result.result?.test) {
+                        sendToClient(clientId, 'test_result', { 
+                            passed: result.result.test.passed,
+                            message: result.result.test.passed ? '测试通过' : '测试失败'
+                        });
+                    }
+                    
+                    // 显示发布结果
+                    if (result.result?.publish) {
+                        sendToClient(clientId, 'pr', { 
+                            url: result.result.publish.pr?.url,
+                            title: result.result.publish.changelog?.title
+                        });
+                    }
+                    
+                    sendToClient(clientId, 'complete', { 
+                        feedbackId, 
+                        status: 'completed', 
+                        result 
+                    });
+                } else {
+                    sendToClient(clientId, 'error', { message: result.error || '处理失败' });
+                    sendToClient(clientId, 'complete', { feedbackId, status: 'failed', error: result.error });
+                }
+            }).catch(err => {
+                console.error('[流式] 智能体处理错误:', err);
+                sendToClient(clientId, 'error', { message: err.message });
+                sendToClient(clientId, 'complete', { feedbackId, status: 'error', error: err.message });
+            });
+            
+            // 立即返回处理中状态
+            sendToClient(clientId, 'stage', { stage: 'processing', message: '智能体正在处理中...' });
+        } else {
+            // 没有智能体时的降级处理
+            sendToClient(clientId, 'stage', { stage: 'analyzing', message: '正在分析反馈意图...' });
+            
+            const intentResult = await analyzeIntent(content);
+            
+            feedback.status = 'generating';
+            feedback.intent = intentResult.intent;
+            feedback.confidence = intentResult.confidence;
+
+            sendToClient(clientId, 'intent', { 
+                intent: intentResult.intent, 
+                confidence: intentResult.confidence,
+                message: `识别到问题类型: ${intentResult.intent}`
             });
 
-            // ===== 步骤4: 创建PR (如果测试通过) =====
-            if (action === 'commit' && agent) {
-                sendToClient(clientId, 'stage', { stage: 'publishing', message: '正在创建GitHub PR...' });
-                
-                try {
-                    const prResult = await agent.createPR(feedback, streamSuggestion);
-                    sendToClient(clientId, 'pr', prResult);
-                } catch (e) {
-                    sendToClient(clientId, 'error', { message: '创建PR失败: ' + e.message });
-                }
-            }
-        }
+            sendToClient(clientId, 'stage', { stage: 'generating', message: '正在生成代码改进建议...' });
 
-        feedback.status = 'completed';
-        
-        // 发送完成消息
-        sendToClient(clientId, 'complete', {
-            feedbackId,
-            status: 'completed',
-            result: {
-                intent: intentResult,
-                suggestion: streamSuggestion
-            }
-        });
+            const streamSuggestion = await generateCodeSuggestionStream(content, intentResult.intent, (chunk) => {
+                sendToClient(clientId, 'code_chunk', { chunk });
+            });
+
+            feedback.codeSuggestion = streamSuggestion;
+            
+            sendToClient(clientId, 'stage', { stage: 'generated', message: '代码建议生成完成' });
+            sendToClient(clientId, 'suggestion', streamSuggestion);
+
+            sendToClient(clientId, 'complete', {
+                feedbackId,
+                status: 'completed',
+                result: { intent: intentResult, suggestion: streamSuggestion }
+            });
+        }
 
         // 延迟关闭连接，让前端有时间接收
         setTimeout(() => {
