@@ -393,10 +393,10 @@ function initAgent() {
 async function processFeedback(feedback, autoIterate = true) {
     console.log('[Agent] 开始处理反馈 (流式):', feedback);
     
-    // 1. 将反馈添加到实时意见流
-    addAgentFeedback(feedback);
+    // 注意：反馈只在智能体确认处理后才显示在实时意见流
+    // 初始不在意见流显示，等待AI处理结果
     
-    // 2. 获取流式输出容器
+    // 1. 获取流式输出容器
     const streamContainer = document.getElementById('streamOutput');
     const time = new Date().toLocaleTimeString();
     
@@ -456,6 +456,9 @@ async function processFeedback(feedback, autoIterate = true) {
                         break;
                         
                     case 'intent':
+                        // AI确认处理后，才将反馈添加到实时意见流
+                        addAgentFeedback(feedback);
+                        
                         streamItem.innerHTML = `
                             <div class="stream-item-header">
                                 <span class="stream-item-status completed">意图识别</span>
@@ -1187,16 +1190,16 @@ function updateCommitCount() {
 // ============================================
 // Version Selector - 版本/分支选择器
 // ============================================
-const GITHUB_REPO = 'LJN-sisi/ai-translator'; // 你的仓库
+const GITHUB_REPO = 'LJN-sisi/-translate-plugin'; // 你的仓库
 
 function initVersionSelector() {
     // 页面加载时立即获取数据
     loadGitHubData();
     
-    // 设置自动刷新，每30秒刷新一次
+    // 设置自动刷新，每15秒刷新一次进化轨迹
     setInterval(() => {
         loadGitHubData();
-    }, 30000);
+    }, 15000);
 }
 
 // 更新最后更新时间显示
