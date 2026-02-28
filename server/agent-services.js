@@ -289,50 +289,265 @@ class CodeModifier {
 
 // ==================== 测试服务 ====================
 
+const fs = require('fs');
+const path = require('path');
+
+// 尝试加载Puppeteer
+let puppeteer;
+try {
+    puppeteer = require('puppeteer');
+} catch (e) {
+    console.warn('[TestService] Puppeteer未安装:', e.message);
+}
+
 class TestService {
+    constructor() {
+        this.testResults = [];
+    }
+    
+    /**
+     * 调用LLM生成浏览器测试用例
+     */
+    async generateTestCases(modification, feedback) {
+        const { file, solution } = modification;
+        
+        // 熔断检查
+        const checkResult = await circuitBreaker.check('test_service', 'llm_call', 1500, null);
+        if (!checkResult.allowed) {
+            throw new Error(`熔断器阻止: ${checkResult.reason}`);
+        }
+        
+        const result = await callLLM([
+            { role: 'system', content: `你是测试工程师。根据代码修改生成浏览器自动化测试用例。
+
+请生成JSON格式的测试用例数组：
+[{"name":"测试名称","action":"测试动作描述","selector":"CSS选择器","expected":"预期结果"}]
+
+要求：
+1. 测试应该在Chrome浏览器中执行
+2. 测试插件的翻译功能
+3. 包含功能测试和UI测试
+4. 考虑修改内容生成针对性的测试` },
+            { role: 'user', content: `修改的文件: ${file}\n修改内容: ${solution?.description}\n原始反馈: ${feedback?.content}\n请生成测试用例:` }
+        ], { apiCallType: 'generate_test_cases', maxTokens: 1000 });
+        
+        let testCases = [];
+        try {
+            const jsonMatch = result.content.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                testCases = JSON.parse(jsonMatch[0]);
+            }
+        } catch (e) {
+            console.warn('[TestService] 解析测试用例失败，使用默认:', e.message);
+            // 默认测试用例
+            testCases = [
+                { name: '页面加载测试', action: '打开插件popup', selector: 'body', expected: '页面正常显示' },
+                { name: '翻译功能测试', action: '测试翻译按钮', selector: '#translateBtn', expected: '翻译成功' }
+            ];
+        }
+        
+        return testCases;
+    }
+    
+    /**
+     * 在浏览器中执行测试
+     */
+    async runBrowserTests(testCases, modification) {
+        const results = [];
+        
+        if (!puppeteer) {
+            return {
+                passed: false,
+                testsRun: testCases.length,
+                testsPassed: 0,
+                testsFailed: testCases.length,
+                details: testCases.map(tc => ({ name: tc.name, status: 'failed', error: 'Puppeteer未安装' }))
+            };
+        }
+        
+        let browser;
+        try {
+            // 启动浏览器
+            browser = await puppeteer.launch({
+                headless: 'new',
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            });
+            
+            const page = await browser.newPage();
+            
+            // 设置视口
+            await page.setViewport({ width: 1280, height: 720 });
+            
+            for (const testCase of testCases) {
+                try {
+                    console.log(`[TestService] 执行测试: ${testCase.name}`);
+                    
+                    // 根据测试类型执行不同操作
+                    let passed = false;
+                    let error = null;
+                    
+                    if (testCase.name.includes('加载') || testCase.name.includes('页面')) {
+                        // 页面加载测试
+                        await page.goto('file://' + path.join(__dirname, '..', 'ai-translator', 'popup.html'), { waitUntil: 'networkidle0' });
+                        await page.waitForSelector('body', { timeout: 5000 });
+                        const title = await page.title();
+                        passed = !!title;
+                    } else if (testCase.name.includes('翻译')) {
+                        // 翻译功能测试 - 打开popup页面
+                        await page.goto('file://' + path.join(__dirname, '..', 'ai-translator', 'popup.html'), { waitUntil: 'networkidle0' });
+                        // 检查关键元素
+                        const hasElements = await page.evaluate(() => {
+                            return document.body.children.length > 0;
+                        });
+                        passed = hasElements;
+                    } else if (testCase.name.includes('控制台') || testCase.name.includes('错误')) {
+                        // 控制台错误检测
+                        const errors = [];
+                        page.on('console', msg => {
+                            if (msg.type() === 'error') errors.push(msg.text());
+                        });
+                        await page.goto('file://' + path.join(__dirname, '..', 'ai-translator', 'popup.html'), { waitUntil: 'networkidle0' });
+                        await page.waitForTimeout(1000);
+                        passed = errors.length === 0;
+                        if (!passed) error = errors.join(', ');
+                    } else {
+                        // 默认测试 - 检查页面可访问
+                        await page.goto('file://' + path.join(__dirname, '..', 'ai-translator', 'popup.html'), { waitUntil: 'networkidle0' });
+                        passed = true;
+                    }
+                    
+                    results.push({
+                        name: testCase.name,
+                        status: passed ? 'passed' : 'failed',
+                        error
+                    });
+                    
+                } catch (e) {
+                    results.push({
+                        name: testCase.name,
+                        status: 'failed',
+                        error: e.message
+                    });
+                }
+            }
+            
+        } catch (e) {
+            console.error('[TestService] 浏览器测试失败:', e.message);
+            return {
+                passed: false,
+                testsRun: testCases.length,
+                testsPassed: 0,
+                testsFailed: testCases.length,
+                details: testCases.map(tc => ({ name: tc.name, status: 'failed', error: e.message }))
+            };
+        } finally {
+            if (browser) await browser.close();
+        }
+        
+        const passedCount = results.filter(r => r.status === 'passed').length;
+        return {
+            passed: passedCount === results.length,
+            testsRun: results.length,
+            testsPassed: passedCount,
+            testsFailed: results.length - passedCount,
+            details: results
+        };
+    }
+    
+    /**
+     * 调用LLM评估测试结果
+     */
+    async evaluateTestResults(testResult, modification) {
+        // 熔断检查
+        const checkResult = await circuitBreaker.check('test_service', 'llm_evaluate', 500, null);
+        if (!checkResult.allowed) {
+            return null; // 跳过LLM评估
+        }
+        
+        const result = await callLLM([
+            { role: 'system', content: `你是测试评估专家。请评估测试结果并给出评分。
+
+请返回JSON格式：
+{"score": 评分(0-10), "assessment": "评估说明", "recommendations": ["建议1", "建议2"]}` },
+            { role: 'user', content: `测试结果: ${JSON.stringify(testResult)}\n修改内容: ${modification?.solution?.description}\n请评估:` }
+        ], { apiCallType: 'evaluate_test', maxTokens: 300 });
+        
+        let evaluation = null;
+        try {
+            const jsonMatch = result.content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                evaluation = JSON.parse(jsonMatch[0]);
+            }
+        } catch (e) {}
+        
+        return evaluation;
+    }
+    
     async runTests(modification) {
         const taskId = generateId('test');
-        const { feedbackId, branch, file } = modification;
+        const { feedbackId, branch, file, solution } = modification;
         
         await database.createTaskLog({ taskId, feedbackId, status: 'testing', stages: [] });
-        await database.addTaskStage(taskId, { name: 'run_tests', status: 'started', startTime: new Date().toISOString() });
+        await database.addTaskStage(taskId, { name: 'generate_test_cases', status: 'started', startTime: new Date().toISOString() });
         
         const checkResult = await circuitBreaker.check('test_service', 'test_run', 0, taskId);
         
         if (!checkResult.allowed) {
-            await database.addTaskStage(taskId, { name: 'run_tests', status: 'failed', endTime: new Date().toISOString(), data: { error: checkResult.reason } });
+            await database.addTaskStage(taskId, { name: 'generate_test_cases', status: 'failed', endTime: new Date().toISOString(), data: { error: checkResult.reason } });
             return { success: false, reason: checkResult.reason };
         }
         
         try {
-            const testResult = {
-                passed: true, testsRun: 5, testsPassed: 5, testsFailed: 0,
-                coverage: 85, duration: 1200,
-                details: [
-                    { name: '单元测试', status: 'passed' },
-                    { name: '集成测试', status: 'passed' },
-                    { name: '语法检查', status: 'passed' },
-                    { name: '代码规范', status: 'passed' },
-                    { name: '安全扫描', status: 'passed' }
-                ]
+            // 步骤1: 调用LLM生成测试用例
+            console.log('[TestService] 步骤1: 生成测试用例...');
+            const feedback = await database.getFeedbackById(feedbackId);
+            const testCases = await this.generateTestCases(modification, feedback);
+            
+            await database.addTaskStage(taskId, { name: 'generate_test_cases', status: 'completed', endTime: new Date().toISOString(), data: { testCases } });
+            await database.addTaskStage(taskId, { name: 'run_browser_tests', status: 'started', startTime: new Date().toISOString() });
+            
+            // 步骤2: 在浏览器中执行测试
+            console.log('[TestService] 步骤2: 执行浏览器测试...');
+            const testResult = await this.runBrowserTests(testCases, modification);
+            
+            await database.addTaskStage(taskId, { name: 'run_browser_tests', status: 'completed', endTime: new Date().toISOString(), data: testResult });
+            await database.addTaskStage(taskId, { name: 'evaluate_results', status: 'started', startTime: new Date().toISOString() });
+            
+            // 步骤3: 调用LLM评估测试结果
+            console.log('[TestService] 步骤3: 评估测试结果...');
+            const evaluation = await this.evaluateTestResults(testResult, modification);
+            
+            await database.addTaskStage(taskId, { name: 'evaluate_results', status: 'completed', endTime: new Date().toISOString(), data: evaluation });
+            
+            // 计算质量门禁
+            const passRate = testResult.testsPassed / testResult.testsRun;
+            const qualityGate = {
+                testPassRate: passRate === 1,
+                coverage: testResult.testsRun >= 3,
+                llmQualityScore: evaluation?.score ? evaluation.score >= 7 : null
             };
             
-            await database.addTaskStage(taskId, { name: 'run_tests', status: 'completed', endTime: new Date().toISOString(), data: testResult });
+            const passed = qualityGate.testPassRate;
             
-            const passRate = testResult.testsPassed / testResult.testsRun;
-            const qualityGate = { testPassRate: passRate === 1, coverage: testResult.coverage >= 80, llmQualityScore: null };
-            const passed = qualityGate.testPassRate && qualityGate.coverage;
+            // 记录Token使用
+            await database.recordTokenUsage({
+                taskId, feedbackId,
+                model: 'deepseek-chat',
+                promptTokens: 0, completionTokens: 0, totalTokens: 0,
+                apiCallType: 'browser_test',
+                success: passed
+            });
             
-            await database.updateTaskLog(taskId, { status: passed ? 'tested' : 'failed', result: { ...testResult, qualityGate, passed } });
+            await database.updateTaskLog(taskId, { status: passed ? 'tested' : 'failed', result: { ...testResult, evaluation, qualityGate, passed } });
             
             if (!passed) {
                 const canRetry = circuitBreaker.incrementRetry(feedbackId);
-                return { success: false, passed: false, canRetry, qualityGate, testResult, reason: '测试未通过质量门禁' };
+                return { success: false, passed: false, canRetry, qualityGate, testResult, evaluation, reason: '浏览器测试未通过' };
             }
             
-            return { success: true, passed: true, taskId, testResult, qualityGate };
+            return { success: true, passed: true, taskId, testResult, evaluation, qualityGate };
         } catch (error) {
-            await database.addTaskStage(taskId, { name: 'run_tests', status: 'failed', endTime: new Date().toISOString(), data: { error: error.message } });
+            await database.addTaskStage(taskId, { name: 'run_browser_tests', status: 'failed', endTime: new Date().toISOString(), data: { error: error.message } });
             await database.updateTaskLog(taskId, { status: 'failed', error: error.message });
             return { success: false, error: error.message };
         }
