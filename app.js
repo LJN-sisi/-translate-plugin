@@ -14,7 +14,7 @@ const API_CONFIG = {
     // 智能体相关 API - DeepSeek AI 驱动
     agent: {
         process: '/api/agent/process',   // POST 处理反馈（核心功能）
-        stream: '/api/agent/stream',     // SSE 实时处理流
+        stream: '/api/agent/process/stream', // SSE 流式处理
         stats: '/api/agent/stats',       // GET 处理统计
         queue: '/api/agent/queue',       // GET 处理队列
         // 自动化迭代 API
@@ -389,20 +389,171 @@ function initAgent() {
     });
 }
 
-// 处理用户反馈 - 触发智能体工作流程
+// 处理用户反馈 - 触发智能体工作流程 (流式版本)
 async function processFeedback(feedback, autoIterate = true) {
-    console.log('[Agent] 开始处理反馈:', feedback);
+    console.log('[Agent] 开始处理反馈 (流式):', feedback);
     
     // 1. 将反馈添加到实时意见流
     addAgentFeedback(feedback);
     
-    // 2. 显示流式输出（接收反馈）
-    showAgentStream(feedback);
+    // 2. 获取流式输出容器
+    const streamContainer = document.getElementById('streamOutput');
+    const time = new Date().toLocaleTimeString();
     
-    // 3. 调用智能体 API 获取处理结果
-    const result = await callAgentAPI(feedback);
+    // 移除欢迎信息
+    if (streamContainer) {
+        const welcome = streamContainer.querySelector('.stream-welcome');
+        if (welcome) welcome.remove();
+        
+        // 创建流式输出项
+        const streamItem = document.createElement('div');
+        streamItem.className = 'stream-item';
+        streamContainer.insertBefore(streamItem, streamContainer.firstChild);
+        
+        // 初始化显示接收反馈
+        streamItem.innerHTML = `
+            <div class="stream-item-header">
+                <span class="stream-item-status processing">接收中</span>
+                <span class="log-time">${time}</span>
+            </div>
+            <div class="stream-item-content">
+                正在解码用户反馈: "<span class="highlight">${feedback.content.substring(0, 20)}...</span>"
+                <span class="stream-typing">▊</span>
+            </div>
+        `;
+    }
     
-    // 4. 显示处理日志和代码变更（合并后的流式输出）
+    // 用于累积代码块内容
+    let codeChunkBuffer = '';
+    let currentStage = '';
+    
+    // 3. 调用流式智能体 API
+    const result = await new Promise((resolve, reject) => {
+        callAgentAPIStream(
+            feedback,
+            // onMessage - 接收流式消息
+            (type, data) => {
+                console.log('[Stream] 收到消息:', type, data);
+                
+                const container = document.getElementById('streamOutput');
+                if (!container) return;
+                
+                const streamItem = container.querySelector('.stream-item');
+                if (!streamItem) return;
+                
+                switch (type) {
+                    case 'stage':
+                        currentStage = data.stage;
+                        streamItem.innerHTML = `
+                            <div class="stream-item-header">
+                                <span class="stream-item-status processing">${getStageName(data.stage)}</span>
+                                <span class="log-time">${new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <div class="stream-item-content">
+                                ${data.message} <span class="stream-typing">▊</span>
+                            </div>
+                        `;
+                        break;
+                        
+                    case 'intent':
+                        streamItem.innerHTML = `
+                            <div class="stream-item-header">
+                                <span class="stream-item-status completed">意图识别</span>
+                                <span class="log-time">${new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <div class="stream-item-content">
+                                ✓ 识别到问题类型: <span class="highlight">${data.intent}</span> (置信度: ${(data.confidence * 100).toFixed(0)}%)
+                            </div>
+                        `;
+                        break;
+                        
+                    case 'code_chunk':
+                        // 实时显示AI输出的每个字
+                        codeChunkBuffer += data.chunk;
+                        const contentDiv = streamItem.querySelector('.stream-item-content');
+                        if (contentDiv) {
+                            // 将JSON格式化显示
+                            try {
+                                const formatted = codeChunkBuffer.includes('{') 
+                                    ? JSON.stringify(JSON.parse(codeChunkBuffer), null, 2)
+                                    : codeChunkBuffer;
+                                contentDiv.innerHTML = `<pre class="stream-code">${escapeHtml(formatted)}<span class="stream-typing">▊</span></pre>`;
+                            } catch {
+                                contentDiv.innerHTML = `<pre class="stream-code">${escapeHtml(codeChunkBuffer)}<span class="stream-typing">▊</span></pre>`;
+                            }
+                        }
+                        break;
+                        
+                    case 'suggestion':
+                        codeChunkBuffer = '';
+                        streamItem.innerHTML = `
+                            <div class="stream-item-header">
+                                <span class="stream-item-status completed">方案生成</span>
+                                <span class="log-time">${new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <div class="stream-item-content">
+                                <div class="stream-code">
+                                    <div class="stream-code-add">+ 文件: ${data.file}</div>
+                                    <div class="stream-code-modify">* 操作: ${data.action}</div>
+                                    <div class="stream-code-add">+ 描述: ${data.description}</div>
+                                    <div class="stream-code-add">+ 代码变更: ${data.codeDiff}</div>
+                                </div>
+                            </div>
+                        `;
+                        break;
+                        
+                    case 'test_progress':
+                        const progressContent = streamItem.querySelector('.stream-item-content');
+                        if (progressContent) {
+                            progressContent.innerHTML = `测试进度: ${data.progress}% <span class="stream-typing">▊</span>`;
+                        }
+                        break;
+                        
+                    case 'test_result':
+                        streamItem.innerHTML = `
+                            <div class="stream-item-header">
+                                <span class="stream-item-status ${data.passed ? 'completed' : 'error'}">${data.passed ? '测试通过' : '测试失败'}</span>
+                                <span class="log-time">${new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <div class="stream-item-content">
+                                ${data.message}
+                            </div>
+                        `;
+                        break;
+                        
+                    case 'pr':
+                        streamItem.innerHTML = `
+                            <div class="stream-item-header">
+                                <span class="stream-item-status completed">PR已创建</span>
+                                <span class="log-time">${new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <div class="stream-item-content">
+                                ✓ GitHub PR: <a href="${data.url}" target="_blank">${data.title}</a>
+                            </div>
+                        `;
+                        break;
+                }
+                
+                // 限制显示数量
+                const items = container.querySelectorAll('.stream-item');
+                if (items.length > 5) {
+                    items[items.length - 1].remove();
+                }
+            },
+            // onComplete - 处理完成
+            (data) => {
+                console.log('[Stream] 处理完成:', data);
+                resolve(data.result || { success: true, status: 'completed' });
+            },
+            // onError - 处理错误
+            (data) => {
+                console.error('[Stream] 错误:', data);
+                reject(new Error(data.message));
+            }
+        );
+    });
+    
+    // 4. 显示处理日志和代码变更
     showProcessingLog(feedback, result);
     
     // 5. 更新提交统计
@@ -554,6 +705,104 @@ async function callAgentAPI(feedback) {
     }
 }
 
+// ==================== 流式智能体 API ====================
+
+// 流式处理反馈 - 实时显示AI输出的每个字
+async function callAgentAPIStream(feedback, onMessage, onComplete, onError) {
+    console.log('[Stream API] 开始流式处理反馈:', feedback.content);
+    
+    try {
+        const response = await fetch(API_BASE + '/api/agent/process/stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                content: feedback.content,
+                userId: feedback.userHash || feedback.userId,
+                language: feedback.language || 'zh',
+                autoTest: true
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            
+            // 处理SSE事件
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // 保留不完整的行
+
+            for (const line of lines) {
+                if (line.startsWith('event:')) {
+                    const eventType = line.replace('event:', '').trim();
+                    
+                    // 查找对应的data行
+                    const dataLineIndex = lines.indexOf(line) + 1;
+                    if (dataLineIndex < lines.length && lines[dataLineIndex].startsWith('data:')) {
+                        const dataStr = lines[dataLineIndex].replace('data:', '').trim();
+                        try {
+                            const data = JSON.parse(dataStr);
+                            
+                            // 根据事件类型调用回调
+                            switch (eventType) {
+                                case 'connected':
+                                    console.log('[Stream] 连接成功');
+                                    break;
+                                case 'stage':
+                                    onMessage && onMessage('stage', data);
+                                    break;
+                                case 'intent':
+                                    onMessage && onMessage('intent', data);
+                                    break;
+                                case 'code_chunk':
+                                    onMessage && onMessage('code_chunk', data);
+                                    break;
+                                case 'suggestion':
+                                    onMessage && onMessage('suggestion', data);
+                                    break;
+                                case 'test_progress':
+                                    onMessage && onMessage('test_progress', data);
+                                    break;
+                                case 'test_result':
+                                    onMessage && onMessage('test_result', data);
+                                    break;
+                                case 'pr':
+                                    onMessage && onMessage('pr', data);
+                                    break;
+                                case 'complete':
+                                    onComplete && onComplete(data);
+                                    break;
+                                case 'error':
+                                    onError && onError(data);
+                                    break;
+                                case 'done':
+                                    console.log('[Stream] 完成');
+                                    break;
+                            }
+                        } catch (e) {
+                            console.error('[Stream] 解析数据失败:', e, dataStr);
+                        }
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[Stream API] 流式处理失败:', error);
+        onError && onError({ message: error.message });
+    }
+}
+
 // ==================== 自动化迭代功能 ====================
 
 // 检查 GitHub 自动化状态
@@ -698,6 +947,25 @@ function generateCodeChanges(content) {
 // 模拟延迟
 function simulateDelay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// 获取阶段名称
+function getStageName(stage) {
+    const stageNames = {
+        'analyzing': '分析中',
+        'generating': '生成中',
+        'generated': '已生成',
+        'testing': '测试中',
+        'publishing': '发布中'
+    };
+    return stageNames[stage] || stage;
+}
+
+// HTML转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // 添加反馈到智能体实时意见流

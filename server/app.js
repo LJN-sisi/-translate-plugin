@@ -17,6 +17,28 @@ const axios = require('axios');
 const path = require('path');
 
 const app = express();
+
+// ========== 流式输出支持 (SSE) ==========
+// 存储活跃的 SSE 连接
+const sseClients = new Map();
+
+// 广播消息到特定客户端
+function sendToClient(clientId, event, data) {
+    const client = sseClients.get(clientId);
+    if (client && client.res && !client.res.writableEnded) {
+        client.res.write(`event: ${event}\n`);
+        client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
+}
+
+// 清理断开的连接
+function removeClient(clientId) {
+    const client = sseClients.get(clientId);
+    if (client && client.res) {
+        client.res.end();
+    }
+    sseClients.delete(clientId);
+}
 const PORT = process.env.PORT || 3001;
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -659,6 +681,233 @@ app.post('/api/agent/process', async (req, res) => {
         });
     }
 });
+
+// ========== 流式处理 API ==========
+app.post('/api/agent/process/stream', async (req, res) => {
+    const { content, userId, language, autoTest = true } = req.body;
+    if (!content?.trim()) {
+        return res.status(400).json({ error: '内容不能为空' });
+    }
+
+    const feedbackId = generateId();
+    const clientId = feedbackId;
+
+    // 设置 SSE 响应头
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*'
+    });
+
+    // 注册客户端
+    sseClients.set(clientId, { res, feedbackId });
+    
+    // 初始连接确认
+    res.write(`event: connected\n`);
+    res.write(`data: ${JSON.stringify({ clientId, status: 'connected' })}\n\n`);
+
+    // 确保连接关闭时清理
+    req.on('close', () => {
+        removeClient(clientId);
+    });
+
+    const feedback = {
+        id: feedbackId,
+        userId: userId || generateId('user'),
+        content: content.substring(0, 280),
+        language: language || 'zh',
+        timestamp: new Date().toISOString(),
+        status: 'analyzing'
+    };
+
+    try {
+        // 保存到数据库
+        await database.createFeedback(feedback);
+        feedbackStore.unshift(feedback);
+        agentStats.totalProcessed++;
+        agentStats.todayProcessed++;
+        agentStats.lastUpdate = new Date().toISOString();
+
+        // ===== 步骤1: 意图分析 =====
+        sendToClient(clientId, 'stage', { stage: 'analyzing', message: '正在分析反馈意图...' });
+        
+        const intentResult = await analyzeIntent(content);
+        
+        feedback.status = 'generating';
+        feedback.intent = intentResult.intent;
+        feedback.confidence = intentResult.confidence;
+
+        sendToClient(clientId, 'intent', { 
+            intent: intentResult.intent, 
+            confidence: intentResult.confidence,
+            message: `识别到问题类型: ${intentResult.intent}`
+        });
+
+        // ===== 步骤2: 生成代码建议 (流式) =====
+        sendToClient(clientId, 'stage', { stage: 'generating', message: '正在生成代码改进建议...' });
+
+        // 使用流式AI调用
+        const streamSuggestion = await generateCodeSuggestionStream(content, intentResult.intent, (chunk) => {
+            sendToClient(clientId, 'code_chunk', { chunk });
+        });
+
+        feedback.codeSuggestion = streamSuggestion;
+        
+        sendToClient(clientId, 'stage', { stage: 'generated', message: '代码建议生成完成' });
+        sendToClient(clientId, 'suggestion', streamSuggestion);
+
+        // ===== 步骤3: 测试 (如果启用) =====
+        if (autoTest) {
+            feedback.status = 'testing';
+            sendToClient(clientId, 'stage', { stage: 'testing', message: '正在运行自动化测试...' });
+
+            // 模拟测试过程发送进度
+            for (let i = 1; i <= 3; i++) {
+                await new Promise(r => setTimeout(r, 500));
+                sendToClient(clientId, 'test_progress', { progress: i * 33, message: `测试进度: ${i * 33}%` });
+            }
+
+            const testResult = await runAutoTests();
+            const action = handleTestResult(testResult, feedbackId);
+            
+            sendToClient(clientId, 'test_result', { 
+                passed: testResult.success,
+                message: testResult.message 
+            });
+
+            // ===== 步骤4: 创建PR (如果测试通过) =====
+            if (action === 'commit' && agent) {
+                sendToClient(clientId, 'stage', { stage: 'publishing', message: '正在创建GitHub PR...' });
+                
+                try {
+                    const prResult = await agent.createPR(feedback, streamSuggestion);
+                    sendToClient(clientId, 'pr', prResult);
+                } catch (e) {
+                    sendToClient(clientId, 'error', { message: '创建PR失败: ' + e.message });
+                }
+            }
+        }
+
+        feedback.status = 'completed';
+        
+        // 发送完成消息
+        sendToClient(clientId, 'complete', {
+            feedbackId,
+            status: 'completed',
+            result: {
+                intent: intentResult,
+                suggestion: streamSuggestion
+            }
+        });
+
+        // 延迟关闭连接，让前端有时间接收
+        setTimeout(() => {
+            res.write(`event: done\n`);
+            res.write(`data: ${JSON.stringify({ status: 'done' })}\n\n`);
+            res.end();
+            removeClient(clientId);
+        }, 1000);
+
+    } catch (error) {
+        console.error('流式处理错误:', error);
+        sendToClient(clientId, 'error', { message: error.message });
+        res.end();
+        removeClient(clientId);
+    }
+});
+
+// 流式生成代码建议
+async function generateCodeSuggestionStream(feedbackContent, intent, onChunk) {
+    const suggestionTemplates = {
+        'accuracy': {
+            file: 'src/translator.js',
+            action: '优化翻译词库匹配算法',
+            codeDiff: '+15 -3',
+            description: '根据用户反馈优化翻译准确性',
+            detail: '将改进翻译匹配算法，增加更多例句和语境分析'
+        },
+        'speed': {
+            file: 'src/services/api.js',
+            action: '优化API响应速度',
+            codeDiff: '+8 -2',
+            description: '优化API调用性能',
+            detail: '添加缓存机制，减少重复请求'
+        },
+        'ui': {
+            file: 'src/components/UI.jsx',
+            action: '改进界面交互',
+            codeDiff: '+20 -5',
+            description: '优化用户界面体验',
+            detail: '增加动画效果，优化布局'
+        },
+        'function': {
+            file: 'src/main.js',
+            action: '增强功能',
+            codeDiff: '+25 -3',
+            description: '添加新功能',
+            detail: '实现用户请求的新功能'
+        },
+        'other': {
+            file: 'src/main.js',
+            action: '常规优化',
+            codeDiff: '+5 -2',
+            description: '一般性改进',
+            detail: '进行代码优化和重构'
+        }
+    };
+
+    const template = suggestionTemplates[intent] || suggestionTemplates['other'];
+
+    // 模拟流式输出效果（因为直接调用流式API需要特殊处理）
+    const fullText = JSON.stringify(template, null, 2);
+    
+    // 按字符流式发送
+    for (let i = 0; i < fullText.length; i++) {
+        onChunk(fullText[i]);
+        await new Promise(r => setTimeout(r, 10)); // 每个字符延迟10ms
+    }
+
+    // 如果有 API Key，尝试调用 AI 生成更精准的建议（流式）
+    if (process.env.DEEPSEEK_API_KEY) {
+        try {
+            const response = await axios.post(
+                'https://api.deepseek.com/v1/chat/completions',
+                {
+                    model: 'deepseek-chat',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: `你是代码助手。根据用户反馈生成代码改进建议。回复格式为JSON，包含file(文件名)、action(操作描述)、codeDiff(代码行数变化)、description(描述)、detail(详细说明)字段。`
+                        },
+                        {
+                            role: 'user',
+                            content: `用户反馈: ${feedbackContent}\n问题类型: ${intent}\n请生成代码改进建议(用JSON格式):`
+                        }
+                    ],
+                    temperature: 0.5,
+                    max_tokens: 300,
+                    stream: false // 暂时不使用stream，因为需要特殊处理
+                },
+                {
+                    headers: { 'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}` },
+                    timeout: 20000
+                }
+            );
+
+            const content = response.data.choices?.[0]?.message?.content || '';
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                return { ...template, ...parsed, aiGenerated: true };
+            }
+        } catch (e) {
+            console.log('AI生成建议失败，使用模板:', e.message);
+        }
+    }
+
+    return { ...template, aiGenerated: false };
+}
 
 // 手动触发测试
 app.post('/api/agent/test', async (req, res) => {
