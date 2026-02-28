@@ -218,7 +218,10 @@ async function submitFeedback(content) {
     });
 
     // 触发智能体处理
-    processFeedback(newFeedback);
+    console.log('[submitFeedback] 准备调用processFeedback');
+    processFeedback(newFeedback).catch(err => {
+        console.error('[submitFeedback] processFeedback失败:', err);
+    });
 }
 
 // Detect tags from content
@@ -435,6 +438,7 @@ function initAgent() {
 // 处理用户反馈 - 触发智能体工作流程 (流式版本)
 async function processFeedback(feedback, autoIterate = true) {
     console.log('[Agent] 开始处理反馈 (流式):', feedback);
+    console.log('[Agent] API_BASE:', API_BASE);
     
     // 注意：反馈只在智能体确认处理后才显示在实时意见流
     // 初始不在意见流显示，等待AI处理结果
@@ -756,6 +760,7 @@ async function callAgentAPI(feedback) {
 // 流式处理反馈 - 实时显示AI输出的每个字
 async function callAgentAPIStream(feedback, onMessage, onComplete, onError) {
     console.log('[Stream API] 开始流式处理反馈:', feedback.content);
+    console.log('[Stream API] 请求URL:', API_BASE + '/api/agent/process/stream');
     
     try {
         const response = await fetch(API_BASE + '/api/agent/process/stream', {
