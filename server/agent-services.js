@@ -290,9 +290,6 @@ class CodeModifier {
 
 // ==================== 测试服务 ====================
 
-const fs = require('fs');
-const path = require('path');
-
 // 尝试加载Puppeteer
 let puppeteer;
 try {
