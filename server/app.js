@@ -1,6 +1,14 @@
 /**
  * 智能体后端服务
  * 核心功能：处理用户反馈，使用 AI 生成代码改进建议
+ * 
+ * 架构：
+ * - 熔断管理器：控制LLM调用成本与风险
+ * - 反馈分析服务：意图识别、可行性评估
+ * - 改进方案生成服务：生成代码修改指令
+ * - 代码修改服务：应用代码变更
+ * - 测试服务：自动化测试与质量门禁
+ * - 发布决策服务：生成改进说明、创建PR
  */
 
 const express = require('express');
@@ -16,6 +24,45 @@ const isProduction = process.env.NODE_ENV === 'production';
 let debugSystem, healthChecker, smartDiagnoser;
 let circuitBreakers;
 let metricsCollector, alertManager;
+
+// 引入新的智能体模块
+let agent;
+let circuitBreaker;
+
+try {
+    const agentServices = require('./agent-services');
+    agent = new agentServices.Agent();
+    console.log('✅ 智能体服务已加载');
+} catch(e) {
+    console.warn('智能体服务加载失败:', e.message);
+    agent = null;
+}
+
+try {
+    const cbModule = require('./circuit-breaker');
+    circuitBreaker = cbModule.circuitBreaker;
+    console.log('✅ 熔断管理器已加载');
+} catch(e) {
+    console.warn('熔断管理器加载失败:', e.message);
+    circuitBreaker = null;
+}
+
+// 引入数据库
+let database;
+try {
+    database = require('./database');
+    console.log('✅ 数据库模块已加载');
+} catch(e) {
+    console.warn('数据库模块加载失败:', e.message);
+    database = {
+        createFeedback: async (f) => f,
+        getFeedbacks: async () => ({ list: [], total: 0 }),
+        updateFeedback: async () => null,
+        getTaskLogs: async () => ({ list: [], total: 0 }),
+        getTokenUsage: async () => ({ list: [], total: 0, stats: {} }),
+        getCircuitBreakerEvents: async () => ({ list: [], total: 0, unresolvedCount: 0 })
+    };
+}
 
 try {
     const debugModule = require('./debug-system');
@@ -470,6 +517,7 @@ app.post('/api/translate', async (req, res) => {
 });
 
 // 智能体处理反馈（完整流程：分析 → 生成代码 → 测试 → 反馈）
+// 使用新的智能体系统
 app.post('/api/agent/process', async (req, res) => {
     const { content, userId, language, autoTest = true } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: '内容不能为空' });
@@ -484,72 +532,132 @@ app.post('/api/agent/process', async (req, res) => {
         status: 'analyzing'
     };
     
+    // 保存到数据库
+    await database.createFeedback(feedback);
     feedbackStore.unshift(feedback);
     agentStats.totalProcessed++;
     agentStats.todayProcessed++;
     agentStats.pendingCount++;
     agentStats.lastUpdate = new Date().toISOString();
     
-    // 第一步：AI 意图分析
-    const intentResult = await analyzeIntent(content);
-    
-    // 更新状态
-    feedback.status = 'generating';
-    feedback.intent = intentResult.intent;
-    feedback.confidence = intentResult.confidence;
-    
-    // 第二步：生成代码改进建议
-    const codeSuggestion = await generateCodeSuggestion(content, intentResult.intent);
-    
-    feedback.status = 'testing';
-    feedback.codeSuggestion = codeSuggestion;
-    
-    // 第三步：自动测试（异步）
-    let testResult = null;
-    if (autoTest) {
-        setTimeout(async () => {
-            testResult = await runAutoTests();
-            const action = handleTestResult(testResult, feedbackId);
+    // 使用新的智能体系统处理
+    if (agent) {
+        try {
+            // 异步处理（完整流程）
+            agent.process(feedback).then(result => {
+                console.log(`[智能体] 处理完成: ${feedbackId}`, result);
+            }).catch(err => {
+                console.error(`[智能体] 处理失败: ${feedbackId}`, err);
+            });
             
-            // 更新反馈状态
-            const fbIndex = feedbackStore.findIndex(f => f.id === feedbackId);
-            if (fbIndex !== -1) {
-                feedbackStore[fbIndex].testResult = testResult;
-                feedbackStore[fbIndex].testAction = action;
-                agentStats.pendingCount = Math.max(0, agentStats.pendingCount - 1);
-            }
+            // 立即返回分析结果
+            const intentResult = await analyzeIntent(content);
             
-            console.log(`[智能体] 反馈 ${feedbackId} 测试完成: ${testResult.message}`);
-        }, 100);
-    } else {
-        feedback.status = 'pending_test';
-    }
-    
-    // 返回处理结果
-    res.json({
-        success: true,
-        data: {
-            feedbackId,
-            input: { content: feedback.content, language: feedback.language },
-            processing: { 
-                status: feedback.status,
-                intent: intentResult.intent,
-                confidence: intentResult.confidence,
-                nodePath: intentResult.nodePath
-            },
-            output: {
-                file: codeSuggestion.file,
-                action: codeSuggestion.action,
-                codeDiff: codeSuggestion.codeDiff,
-                description: codeSuggestion.description,
-                aiGenerated: codeSuggestion.aiGenerated
-            },
-            test: {
-                scheduled: autoTest,
-                status: autoTest ? 'running' : 'pending'
-            }
+            // 更新状态
+            feedback.status = 'generating';
+            feedback.intent = intentResult.intent;
+            feedback.confidence = intentResult.confidence;
+            
+            // 生成代码建议
+            const codeSuggestion = await generateCodeSuggestion(content, intentResult.intent);
+            
+            feedback.status = 'testing';
+            feedback.codeSuggestion = codeSuggestion;
+            
+            // 返回处理结果
+            res.json({
+                success: true,
+                data: {
+                    feedbackId,
+                    input: { content: feedback.content, language: feedback.language },
+                    processing: { 
+                        status: feedback.status,
+                        intent: intentResult.intent,
+                        confidence: intentResult.confidence,
+                        nodePath: intentResult.nodePath
+                    },
+                    output: {
+                        file: codeSuggestion.file,
+                        action: codeSuggestion.action,
+                        codeDiff: codeSuggestion.codeDiff,
+                        description: codeSuggestion.description,
+                        aiGenerated: codeSuggestion.aiGenerated
+                    },
+                    test: {
+                        scheduled: autoTest,
+                        status: autoTest ? 'running' : 'pending'
+                    },
+                    // 新增：熔断状态
+                    circuitBreaker: circuitBreaker ? circuitBreaker.getStatus() : null
+                }
+            });
+        } catch (error) {
+            console.error('智能体处理错误:', error);
+            res.status(500).json({ success: false, error: error.message });
         }
-    });
+    } else {
+        // 降级处理：使用旧的处理方式
+        // 第一步：AI 意图分析
+        const intentResult = await analyzeIntent(content);
+        
+        // 更新状态
+        feedback.status = 'generating';
+        feedback.intent = intentResult.intent;
+        feedback.confidence = intentResult.confidence;
+        
+        // 第二步：生成代码改进建议
+        const codeSuggestion = await generateCodeSuggestion(content, intentResult.intent);
+        
+        feedback.status = 'testing';
+        feedback.codeSuggestion = codeSuggestion;
+        
+        // 第三步：自动测试（异步）
+        let testResult = null;
+        if (autoTest) {
+            setTimeout(async () => {
+                testResult = await runAutoTests();
+                const action = handleTestResult(testResult, feedbackId);
+                
+                // 更新反馈状态
+                const fbIndex = feedbackStore.findIndex(f => f.id === feedbackId);
+                if (fbIndex !== -1) {
+                    feedbackStore[fbIndex].testResult = testResult;
+                    feedbackStore[fbIndex].testAction = action;
+                    agentStats.pendingCount = Math.max(0, agentStats.pendingCount - 1);
+                }
+                
+                console.log(`[智能体] 反馈 ${feedbackId} 测试完成: ${testResult.message}`);
+            }, 100);
+        } else {
+            feedback.status = 'pending_test';
+        }
+        
+        // 返回处理结果
+        res.json({
+            success: true,
+            data: {
+                feedbackId,
+                input: { content: feedback.content, language: feedback.language },
+                processing: { 
+                    status: feedback.status,
+                    intent: intentResult.intent,
+                    confidence: intentResult.confidence,
+                    nodePath: intentResult.nodePath
+                },
+                output: {
+                    file: codeSuggestion.file,
+                    action: codeSuggestion.action,
+                    codeDiff: codeSuggestion.codeDiff,
+                    description: codeSuggestion.description,
+                    aiGenerated: codeSuggestion.aiGenerated
+                },
+                test: {
+                    scheduled: autoTest,
+                    status: autoTest ? 'running' : 'pending'
+                }
+            }
+        });
+    }
 });
 
 // 手动触发测试
@@ -565,8 +673,95 @@ app.get('/api/agent/tests', (req, res) => {
 });
 
 // 智能体统计
-app.get('/api/agent/stats', (req, res) => {
-    res.json({ success: true, data: agentStats });
+app.get('/api/agent/stats', async (req, res) => {
+    // 获取数据库统计
+    const dbStats = await database.getAgentStats();
+    const combinedStats = {
+        ...agentStats,
+        ...dbStats,
+        circuitBreaker: circuitBreaker ? circuitBreaker.getStatus() : null
+    };
+    res.json({ success: true, data: combinedStats });
+});
+
+// ==================== 熔断管理器 API ====================
+
+// 获取熔断状态
+app.get('/api/circuit/status', (req, res) => {
+    if (!circuitBreaker) {
+        return res.status(503).json({ success: false, error: '熔断管理器未加载' });
+    }
+    res.json({ success: true, data: circuitBreaker.getStatus() });
+});
+
+// 熔断检查接口
+app.post('/api/circuit/check', async (req, res) => {
+    const { service, action, estimatedTokens, taskId } = req.body;
+    if (!service || !action) {
+        return res.status(400).json({ success: false, error: '缺少必要参数' });
+    }
+    
+    if (!circuitBreaker) {
+        return res.status(503).json({ success: false, error: '熔断管理器未加载' });
+    }
+    
+    const result = await circuitBreaker.check(service, action, estimatedTokens || 0, taskId);
+    res.json({ success: result.allowed, data: result });
+});
+
+// 释放资源
+app.post('/api/circuit/release', async (req, res) => {
+    const { taskId, actualTokens } = req.body;
+    if (!taskId) {
+        return res.status(400).json({ success: false, error: '缺少taskId' });
+    }
+    
+    if (!circuitBreaker) {
+        return res.status(503).json({ success: false, error: '熔断管理器未加载' });
+    }
+    
+    await circuitBreaker.release(taskId, actualTokens || 0);
+    res.json({ success: true, data: { taskId, released: true } });
+});
+
+// 获取Token使用记录
+app.get('/api/circuit/token-usage', async (req, res) => {
+    const { limit = 50, taskId, feedbackId } = req.query;
+    
+    const result = await database.getTokenUsage({
+        limit: Number(limit),
+        taskId,
+        feedbackId
+    });
+    
+    res.json({ success: true, data: result });
+});
+
+// 获取熔断事件记录
+app.get('/api/circuit/events', async (req, res) => {
+    const { limit = 50, service, unresolvedOnly } = req.query;
+    
+    const result = await database.getCircuitBreakerEvents({
+        limit: Number(limit),
+        service,
+        unresolvedOnly: unresolvedOnly === 'true'
+    });
+    
+    res.json({ success: true, data: result });
+});
+
+// 获取任务日志
+app.get('/api/agent/task-logs', async (req, res) => {
+    const { limit = 20, taskId, feedbackId, status } = req.query;
+    
+    const result = await database.getTaskLogs({
+        limit: Number(limit),
+        taskId,
+        feedbackId,
+        status
+    });
+    
+    res.json({ success: true, data: result });
 });
 
 // 调试路由 (生产环境需要认证)
@@ -611,11 +806,19 @@ app.get('/api/download/manifest.json', (req, res) => {
 app.listen(PORT, () => {
     console.log(`🤖 智能体后端服务已启动: http://localhost:${PORT}`);
     console.log('📡 API 端点:');
-    console.log('   - GET  /api/health         健康检查');
-    console.log('   - GET  /api/feedback       反馈列表');
-    console.log('   - POST /api/feedback      创建反馈');
-    console.log('   - POST /api/translate     翻译');
-    console.log('   - POST /api/agent/process 处理反馈');
+    console.log('   - GET  /api/health           健康检查');
+    console.log('   - GET  /api/feedback         反馈列表');
+    console.log('   - POST /api/feedback         创建反馈');
+    console.log('   - POST /api/translate        翻译');
+    console.log('   - POST /api/agent/process    处理反馈（智能体）');
+    console.log('');
+    console.log('🛡️  熔断管理 API:');
+    console.log('   - GET  /api/circuit/status       熔断状态');
+    console.log('   - POST /api/circuit/check       熔断检查');
+    console.log('   - POST /api/circuit/release    释放资源');
+    console.log('   - GET  /api/circuit/token-usage Token使用记录');
+    console.log('   - GET  /api/circuit/events      熔断事件记录');
+    console.log('   - GET  /api/agent/task-logs    任务日志');
 });
 
 module.exports = app;

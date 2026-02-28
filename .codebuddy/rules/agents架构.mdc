@@ -1,0 +1,74 @@
+---
+description: 新智能体架构，没开发一个新模块必须查看
+alwaysApply: false
+enabled: true
+updatedAt: 2026-02-27T15:01:50.312Z
+provider: 
+---
+
+flowchart TD
+    A[前端反馈接口] -->|HTTP| B(API网关)
+    B --> C{反馈队列<br/>(Kafka/RabbitMQ)}
+
+    subgraph 核心处理引擎（内嵌熔断）
+        direction TB
+        
+        D[反馈分析服务] -->|1. 消费消息| C
+        D -->|2. 请求LLM分析前| E{熔断管理器}
+        E -->|允许调用| F[(LLM服务)]
+        E -->|熔断触发| G[降级处理: 归档/通知人工]
+        D -->|3. 筛选结果| H{可自动改进?}
+        H -->|否| G
+        H -->|是| I[改进方案生成服务]
+
+        I -->|请求LLM生成方案前| E
+        E -->|允许调用| F
+        E -->|熔断触发| G
+        I -->|输出修改指令| J[代码修改服务]
+
+        J -->|克隆仓库/创建分支前| E
+        E -->|允许操作| K[(Git仓库)]
+        E -->|熔断触发| G
+        J -->|应用代码变更| L[修改后代码]
+
+        L --> M[测试服务]
+        M -->|运行测试前| E
+        E -->|允许执行| N[测试执行引擎]
+        E -->|熔断触发| G
+        N -->|生成测试报告| O[测试报告]
+        M -->|请求LLM评估测试结果| E
+        E -->|允许调用| F
+        E -->|熔断触发| G
+        M -->|质量门禁判断| P{是否达标?}
+
+        P -->|否| Q{重试次数 < 3?}
+        Q -->|是| I
+        Q -->|否| R[记录失败/人工介入]
+
+        P -->|是| S[发布决策服务]
+        S -->|请求生成改进说明| E
+        E -->|允许调用| F
+        E -->|熔断触发| G
+        S -->|创建PR/提交代码前| E
+        E -->|允许操作| K
+        E -->|熔断触发| G
+        S -->|更新CHANGELOG| T[(改进说明文档)]
+    end
+
+    subgraph 熔断数据层
+        E -->|记录用量/事件| U[(监控数据库)]
+        U -->|阈值配置加载| E
+    end
+
+    style A fill:#f9f,stroke:#333
+    style B fill:#bbf,stroke:#333
+    style C fill:#ccf,stroke:#333
+    style D fill:#cfc,stroke:#333
+    style E fill:#f96,stroke:#333,stroke-width:3px
+    style I fill:#cfc,stroke:#333
+    style J fill:#cfc,stroke:#333
+    style M fill:#cfc,stroke:#333
+    style S fill:#cfc,stroke:#333
+
+
+    style G fill:#fcc,stroke:#333
