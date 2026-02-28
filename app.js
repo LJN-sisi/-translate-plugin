@@ -1190,7 +1190,7 @@ function updateCommitCount() {
 // ============================================
 // Version Selector - 版本/分支选择器
 // ============================================
-const GITHUB_REPO = 'LJN-sisi/-translate-plugin'; // 你的仓库
+const GITHUB_REPO = 'LJN-sisi/ai-translator'; // 你的仓库
 
 function initVersionSelector() {
     // 页面加载时立即获取数据
