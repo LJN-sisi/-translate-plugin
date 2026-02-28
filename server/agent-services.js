@@ -161,12 +161,14 @@ class SolutionGenerator {
         const checkResult = await circuitBreaker.check('solution_generator', 'llm_call', 2000, taskId);
         
         if (!checkResult.allowed) {
+            console.log('[SolutionGenerator] 熔断阻止:', checkResult.reason);
             await database.addTaskStage(taskId, { name: 'generate_solution', status: 'failed', endTime: new Date().toISOString(), data: { error: checkResult.reason } });
             await database.updateTaskLog(taskId, { status: 'failed', error: checkResult.reason });
             return { success: false, reason: checkResult.reason };
         }
         
         try {
+            console.log('[SolutionGenerator] 调用LLM生成解决方案...');
             const result = await callLLM([
                 { role: 'system', content: `你是代码改进方案助手。根据分析结果生成代码修改指令。
 请生成JSON格式的修改指令：
@@ -174,17 +176,22 @@ class SolutionGenerator {
                 { role: 'user', content: `问题类型: ${intent}\n问题描述: ${summary}\n优先级: ${priority}\n请生成代码修改指令:` }
             ], { taskId, feedbackId, apiCallType: 'generate_solution', maxTokens: 1000 });
             
+            console.log('[SolutionGenerator] LLM返回:', result.content.substring(0, 200));
+            
             let solution = { file: 'src/main.js', action: 'replace', codeBlock: '// 改进代码', description: summary };
             try {
                 const jsonMatch = result.content.match(/\{[\s\S]*\}/);
                 if (jsonMatch) solution = { ...solution, ...JSON.parse(jsonMatch[0]) };
             } catch (e) {}
             
+            console.log('[SolutionGenerator] 解析后的方案:', solution);
+            
             await database.addTaskStage(taskId, { name: 'generate_solution', status: 'completed', endTime: new Date().toISOString(), data: solution });
             await database.updateTaskLog(taskId, { status: 'generated', result: solution });
             
             return { success: true, taskId, solution };
         } catch (error) {
+            console.error('[SolutionGenerator] 生成失败:', error.message);
             await database.addTaskStage(taskId, { name: 'generate_solution', status: 'failed', endTime: new Date().toISOString(), data: { error: error.message } });
             await database.updateTaskLog(taskId, { status: 'failed', error: error.message });
             return { success: false, error: error.message };
