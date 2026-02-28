@@ -733,6 +733,8 @@ app.post('/api/agent/process/stream', async (req, res) => {
         if (agent) {
             sendToClient(clientId, 'stage', { stage: 'analyzing', message: '正在分析反馈...' });
             console.log('[流式] 开始调用智能体处理:', feedback.content);
+            console.log('[流式] agent对象:', agent);
+            console.log('[流式] agent.process:', typeof agent.process);
             
             // 启动完整智能体处理流程
             agent.process(feedback).then(async (result) => {
