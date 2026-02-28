@@ -357,7 +357,7 @@ async function generateCodeSuggestion(feedbackContent, intent) {
                 },
                 {
                     headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
-                    timeout: 15000
+                    timeout: 30000
                 }
             );
 

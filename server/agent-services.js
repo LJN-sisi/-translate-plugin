@@ -64,7 +64,7 @@ async function callLLM(messages, options = {}) {
         const response = await axios.post(
             'https://api.deepseek.com/v1/chat/completions',
             { model, messages, temperature, max_tokens: maxTokens },
-            { headers: { 'Authorization': `Bearer ${apiKey}` }, timeout: 30000 }
+            { headers: { 'Authorization': `Bearer ${apiKey}` }, timeout: 60000 }
         );
         
         const usage = response.data.usage;
