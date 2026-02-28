@@ -1055,7 +1055,7 @@ app.use('/api/debug', debugRouter);
 
 // 下载插件 - 返回插件目录的zip文件
 app.get('/api/download', (req, res) => {
-    const pluginDir = path.join(__dirname, '..');
+    const pluginDir = path.join(__dirname, '..', 'ai-translator');
     const fs = require('fs');
     const archiver = require('archiver');
     
@@ -1076,19 +1076,8 @@ app.get('/api/download', (req, res) => {
     
     archive.pipe(res);
     
-    // 排除不需要的文件
-    archive.glob('**/*', {
-        cwd: pluginDir,
-        ignore: [
-            'node_modules/**',
-            '.git/**',
-            'repo/**',
-            'data/**',
-            '*.log',
-            '.env',
-            'pm2*.json'
-        ]
-    });
+    // 压缩ai-translator目录
+    archive.directory(pluginDir, 'translate-plugin');
     
     archive.finalize();
 });
