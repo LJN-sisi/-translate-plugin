@@ -185,9 +185,9 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const GITHUB_REPO = 'https://github.com/LJN-sisi/ai-translator';
-// 使用网站根目录作为工作目录
-const WORK_DIR = path.join(__dirname, '..');
+const GITHUB_REPO = 'https://github.com/LJN-sisi/-translate-plugin';
+// 使用ai-translator目录作为工作目录（插件目录）
+const WORK_DIR = path.join(__dirname, '..', 'ai-translator');
 
 class CodeModifier {
     constructor() {
