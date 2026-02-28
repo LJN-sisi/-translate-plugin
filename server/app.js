@@ -42,6 +42,10 @@ function removeClient(clientId) {
 const PORT = process.env.PORT || 3001;
 const isProduction = process.env.NODE_ENV === 'production';
 
+// DeepSeek API Key（支持环境变量或使用默认值）
+const DEFAULT_API_KEY = 'sk-8cfff84f68554e8e807a3274c91737c2';
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || DEFAULT_API_KEY;
+
 // 引入模块
 let debugSystem, healthChecker, smartDiagnoser;
 let circuitBreakers;
@@ -332,7 +336,7 @@ async function generateCodeSuggestion(feedbackContent, intent) {
     const template = suggestionTemplates[intent] || suggestionTemplates['other'];
 
     // 如果有 API Key，调用 AI 生成更精准的建议
-    if (process.env.DEEPSEEK_API_KEY) {
+    if (DEEPSEEK_API_KEY) {
         try {
             const response = await axios.post(
                 'https://api.deepseek.com/v1/chat/completions',
@@ -352,7 +356,7 @@ async function generateCodeSuggestion(feedbackContent, intent) {
                     max_tokens: 200
                 },
                 {
-                    headers: { 'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}` },
+                    headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
                     timeout: 15000
                 }
             );
@@ -376,7 +380,7 @@ async function generateCodeSuggestion(feedbackContent, intent) {
 // AI 回应函数
 async function generateAIResponse(feedbackContent) {
     // 如果没有配置 API Key，返回默认回应
-    if (!process.env.DEEPSEEK_API_KEY) {
+    if (!DEEPSEEK_API_KEY) {
         return {
             responded: false,
             response: '感谢您的反馈！我们已收到您的意见。',
@@ -403,7 +407,7 @@ async function generateAIResponse(feedbackContent) {
                 max_tokens: 200
             },
             {
-                headers: { 'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}` },
+                headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
                 timeout: 15000
             }
         );
@@ -504,7 +508,7 @@ app.post('/api/translate', async (req, res) => {
     if (text.length > 500) return res.status(400).json({ error: '文本长度不能超过500字符' });
     
     // 如果没有 API Key，返回模拟翻译
-    if (!process.env.DEEPSEEK_API_KEY) {
+    if (!DEEPSEEK_API_KEY) {
         return res.json({
             success: true,
             data: { translation: `[模拟翻译] ${text}`, mock: true }
@@ -523,7 +527,7 @@ app.post('/api/translate', async (req, res) => {
                 temperature: 0.3
             },
             {
-                headers: { 'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}` },
+                headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
                 timeout: 30000
             }
         );
@@ -899,7 +903,7 @@ async function generateCodeSuggestionStream(feedbackContent, intent, onChunk) {
     }
 
     // 如果有 API Key，尝试调用 AI 生成更精准的建议（流式）
-    if (process.env.DEEPSEEK_API_KEY) {
+    if (DEEPSEEK_API_KEY) {
         try {
             const response = await axios.post(
                 'https://api.deepseek.com/v1/chat/completions',
@@ -920,7 +924,7 @@ async function generateCodeSuggestionStream(feedbackContent, intent, onChunk) {
                     stream: false // 暂时不使用stream，因为需要特殊处理
                 },
                 {
-                    headers: { 'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}` },
+                    headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}` },
                     timeout: 20000
                 }
             );

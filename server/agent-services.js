@@ -26,8 +26,8 @@ function generateId(prefix = 'task') {
  * 调用 DeepSeek LLM
  */
 async function callLLM(messages, options = {}) {
-    const { 
-        apiKey = process.env.DEEPSEEK_API_KEY, 
+    // 从环境变量或硬编码获取API Key
+    const apiKey = process.env.DEEPSEEK_API_KEY || 'sk-8cfff84f68554e8e807a3274c91737c2'; 
         model = 'deepseek-chat',
         temperature = 0.7,
         maxTokens = 2000,
@@ -665,9 +665,11 @@ class Agent {
         this.codeModifier = new CodeModifier();
         this.testService = new TestService();
         this.publishService = new PublishService();
+        console.log('[Agent] 智能体初始化完成');
     }
     
     async process(feedback) {
+        console.log('[Agent.process] 收到反馈:', feedback);
         const feedbackId = feedback.id || generateId('fb');
         const startTime = Date.now();
         
