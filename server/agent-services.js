@@ -27,7 +27,10 @@ function generateId(prefix = 'task') {
  */
 async function callLLM(messages, options = {}) {
     // 从环境变量或硬编码获取API Key
-    const apiKey = process.env.DEEPSEEK_API_KEY || 'sk-8cfff84f68554e8e807a3274c91737c2'; 
+    const hardcodedKey = 'sk-8cfff84f68554e8e807a3274c91737c2';
+    const apiKey = process.env.DEEPSEEK_API_KEY || hardcodedKey;
+    
+    const {
         model = 'deepseek-chat',
         temperature = 0.7,
         maxTokens = 2000,
