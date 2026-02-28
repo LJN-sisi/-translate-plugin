@@ -122,9 +122,10 @@ class FeedbackAnalyzer {
             } catch (e) {}
             
             await database.addTaskStage(taskId, { name: 'analyze_intent', status: 'completed', endTime: new Date().toISOString(), data: analysis });
-            await database.updateTaskLog(taskId, { status: analysis.feasibility === 'high' ? 'analyzed' : 'failed', result: analysis });
+            await database.updateTaskLog(taskId, { status: analysis.feasibility !== 'low' ? 'analyzed' : 'failed', result: analysis });
             
-            const canAutoImprove = analysis.feasibility === 'high';
+            // high和medium都可以自动改进，只有low需要人工
+            const canAutoImprove = analysis.feasibility !== 'low';
             return { success: true, taskId, analysis, canAutoImprove, structuredResult: canAutoImprove ? { intent: analysis.intent, impact: analysis.impact, priority: analysis.priority, summary: analysis.summary } : null };
         } catch (error) {
             await database.addTaskStage(taskId, { name: 'analyze_intent', status: 'failed', endTime: new Date().toISOString(), data: { error: error.message } });
