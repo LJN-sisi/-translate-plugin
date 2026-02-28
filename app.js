@@ -732,6 +732,7 @@ async function callAgentAPIStream(feedback, onMessage, onComplete, onError) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let currentEvent = '';
 
         while (true) {
             const { done, value } = await reader.read();
@@ -744,56 +745,55 @@ async function callAgentAPIStream(feedback, onMessage, onComplete, onError) {
             buffer = lines.pop(); // 保留不完整的行
 
             for (const line of lines) {
-                if (line.startsWith('event:')) {
-                    const eventType = line.replace('event:', '').trim();
-                    
-                    // 查找对应的data行
-                    const dataLineIndex = lines.indexOf(line) + 1;
-                    if (dataLineIndex < lines.length && lines[dataLineIndex].startsWith('data:')) {
-                        const dataStr = lines[dataLineIndex].replace('data:', '').trim();
-                        try {
-                            const data = JSON.parse(dataStr);
-                            
-                            // 根据事件类型调用回调
-                            switch (eventType) {
-                                case 'connected':
-                                    console.log('[Stream] 连接成功');
-                                    break;
-                                case 'stage':
-                                    onMessage && onMessage('stage', data);
-                                    break;
-                                case 'intent':
-                                    onMessage && onMessage('intent', data);
-                                    break;
-                                case 'code_chunk':
-                                    onMessage && onMessage('code_chunk', data);
-                                    break;
-                                case 'suggestion':
-                                    onMessage && onMessage('suggestion', data);
-                                    break;
-                                case 'test_progress':
-                                    onMessage && onMessage('test_progress', data);
-                                    break;
-                                case 'test_result':
-                                    onMessage && onMessage('test_result', data);
-                                    break;
-                                case 'pr':
-                                    onMessage && onMessage('pr', data);
-                                    break;
-                                case 'complete':
-                                    onComplete && onComplete(data);
-                                    break;
-                                case 'error':
-                                    onError && onError(data);
-                                    break;
-                                case 'done':
-                                    console.log('[Stream] 完成');
-                                    break;
-                            }
-                        } catch (e) {
-                            console.error('[Stream] 解析数据失败:', e, dataStr);
+                const trimmedLine = line.trim();
+                
+                if (trimmedLine.startsWith('event:')) {
+                    currentEvent = trimmedLine.replace('event:', '').trim();
+                } else if (trimmedLine.startsWith('data:') && currentEvent) {
+                    const dataStr = trimmedLine.replace('data:', '').trim();
+                    try {
+                        const data = JSON.parse(dataStr);
+                        
+                        // 根据事件类型调用回调
+                        switch (currentEvent) {
+                            case 'connected':
+                                console.log('[Stream] 连接成功');
+                                break;
+                            case 'stage':
+                                onMessage && onMessage('stage', data);
+                                break;
+                            case 'intent':
+                                onMessage && onMessage('intent', data);
+                                break;
+                            case 'code_chunk':
+                                onMessage && onMessage('code_chunk', data);
+                                break;
+                            case 'suggestion':
+                                onMessage && onMessage('suggestion', data);
+                                break;
+                            case 'test_progress':
+                                onMessage && onMessage('test_progress', data);
+                                break;
+                            case 'test_result':
+                                onMessage && onMessage('test_result', data);
+                                break;
+                            case 'pr':
+                                onMessage && onMessage('pr', data);
+                                break;
+                            case 'complete':
+                                onComplete && onComplete(data);
+                                break;
+                            case 'error':
+                                onError && onError(data);
+                                break;
+                            case 'done':
+                                console.log('[Stream] 完成');
+                                break;
                         }
+                    } catch (e) {
+                        console.error('[Stream] 解析数据失败:', e, dataStr);
                     }
+                    currentEvent = ''; // 重置事件类型
                 }
             }
         }
