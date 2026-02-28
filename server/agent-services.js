@@ -375,8 +375,6 @@ class TestService {
                 process.env.CHROME_BIN
             ].filter(Boolean); // 过滤掉undefined/null
             
-            const fs = require('fs');
-            
             // 调试：打印所有尝试的路径
             console.log('[TestService] 尝试的Chrome路径:', possiblePaths);
             console.log('[TestService] CHROME_PATH环境变量:', process.env.CHROME_PATH);
