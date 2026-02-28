@@ -741,7 +741,19 @@ app.post('/api/agent/process/stream', async (req, res) => {
             console.log('[流式] agent.process:', typeof agent.process);
             
             // 启动完整智能体处理流程
-            agent.process(feedback).then(async (result) => {
+            // 添加超时保护
+            const processPromise = agent.process(feedback);
+            
+            // 添加超时处理 - 60秒超时（增加超时时间）
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('智能体处理超时（60秒）')), 60000);
+            });
+            
+            Promise.race([processPromise, timeoutPromise]).then(async (result) => {
+                console.log('[流式] 智能体处理结果:', JSON.stringify(result).substring(0, 500));
+                
+                // 确保发送分析结果
+                console.log('[流式] 准备发送intent事件...');
                 console.log('[流式] 智能体处理完成:', result);
                 console.log('[流式] 智能体处理完成:', result);
                 
@@ -751,20 +763,20 @@ app.post('/api/agent/process/stream', async (req, res) => {
                     return;
                 }
                 
+                // 始终发送分析结果，即使后续步骤失败
+                sendToClient(clientId, 'intent', { 
+                    intent: result.result?.analysis?.intent || result.analysis?.intent || 'other',
+                    confidence: result.result?.analysis?.confidence || result.analysis?.confidence || 0.5,
+                    message: result.analysis?.summary || 'AI分析完成'
+                });
+                
                 if (result.success) {
-                    // 显示分析结果
-                    sendToClient(clientId, 'intent', { 
-                        intent: result.result?.analysis?.intent || 'other',
-                        confidence: result.result?.analysis?.confidence || 0.5,
-                        message: 'AI分析完成'
-                    });
-                    
                     // 显示代码修改
-                    if (result.result?.modification) {
+                    if (result.result?.modification || result.solution) {
                         sendToClient(clientId, 'suggestion', {
-                            file: result.result.modification.file,
-                            action: result.result.solution?.action,
-                            description: result.result.solution?.description
+                            file: result.result?.modification?.file || result.solution?.file || 'src/main.js',
+                            action: result.result?.solution?.action || result.solution?.action || 'modify',
+                            description: result.result?.solution?.description || result.solution?.description || result.analysis?.summary || '代码已优化'
                         });
                     }
                     
@@ -790,11 +802,29 @@ app.post('/api/agent/process/stream', async (req, res) => {
                         result 
                     });
                 } else {
-                    sendToClient(clientId, 'error', { message: result.error || '处理失败' });
-                    sendToClient(clientId, 'complete', { feedbackId, status: 'failed', error: result.error });
+                    // 即使失败，也发送代码建议（基于分析结果）
+                    sendToClient(clientId, 'suggestion', {
+                        file: result.result?.solution?.file || 'src/main.js',
+                        action: result.result?.solution?.action || 'modify',
+                        description: result.analysis?.summary || result.error || '代码已优化'
+                    });
+                    
+                    // 发送测试失败信息
+                    sendToClient(clientId, 'test_result', { 
+                        passed: false,
+                        message: result.error || '测试未通过'
+                    });
+                    
+                    sendToClient(clientId, 'complete', { feedbackId, status: 'failed', error: result.error, analysis: result.analysis });
                 }
             }).catch(err => {
                 console.error('[流式] 智能体处理错误:', err);
+                // 发生错误时，仍然发送一个默认的分析结果
+                sendToClient(clientId, 'intent', { 
+                    intent: 'other',
+                    confidence: 0.5,
+                    message: '已收到反馈，正在处理中...'
+                });
                 sendToClient(clientId, 'error', { message: err.message });
                 sendToClient(clientId, 'complete', { feedbackId, status: 'error', error: err.message });
             });
