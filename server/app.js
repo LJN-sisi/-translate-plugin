@@ -1053,28 +1053,65 @@ debugRouter.get('/performance', (req, res) => {
 
 app.use('/api/debug', debugRouter);
 
-// 下载插件 - 返回 manifest.json 让用户下载
+// 下载插件 - 返回插件目录的zip文件
 app.get('/api/download', (req, res) => {
-    const pluginDir = path.join(__dirname, '..', 'ai-translator');
+    const pluginDir = path.join(__dirname, '..');
     const fs = require('fs');
+    const archiver = require('archiver');
     
     if (!fs.existsSync(pluginDir)) {
-        return res.json({ success: false, error: '插件目录不存在' });
+        return res.status(404).json({ success: false, error: '插件目录不存在' });
     }
     
-    // 返回插件信息，引导用户从GitHub下载
-    res.json({ 
-        success: true, 
-        message: '请从 GitHub 下载插件',
-        url: 'https://github.com/LJN-sisi/-translate-plugin/archive/refs/heads/main.zip',
-        files: fs.readdirSync(pluginDir)
+    // 设置响应头，让浏览器下载zip文件
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename=translate-plugin.zip');
+    
+    // 创建zip压缩流
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    
+    archive.on('error', (err) => {
+        res.status(500).send({ error: err.message });
     });
+    
+    archive.pipe(res);
+    
+    // 排除不需要的文件
+    archive.glob('**/*', {
+        cwd: pluginDir,
+        ignore: [
+            'node_modules/**',
+            '.git/**',
+            'repo/**',
+            'data/**',
+            '*.log',
+            '.env',
+            'pm2*.json'
+        ]
+    });
+    
+    archive.finalize();
 });
 
-// 提供插件文件下载
-app.get('/api/download/manifest.json', (req, res) => {
-    const manifestPath = path.join(__dirname, '..', 'ai-translator', 'manifest.json');
-    res.download(manifestPath);
+// 提供插件文件下载 - 单文件下载
+app.get('/api/download/:filename', (req, res) => {
+    const { filename } = req.params;
+    const fs = require('fs');
+    
+    // 安全检查：只允许下载特定文件
+    const allowedFiles = ['manifest.json', 'popup.html', 'background.js', 'content.js', 'styles.css'];
+    
+    if (!allowedFiles.includes(filename)) {
+        return res.status(403).json({ success: false, error: '不允许下载此文件' });
+    }
+    
+    const filePath = path.join(__dirname, '..', filename);
+    
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ success: false, error: '文件不存在' });
+    }
+    
+    res.download(filePath);
 });
 
 // 启动服务器
