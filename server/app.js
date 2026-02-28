@@ -1065,7 +1065,7 @@ app.get('/api/download', (req, res) => {
     
     // 设置响应头，让浏览器下载zip文件
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename=translate-plugin.zip');
+    res.setHeader('Content-Disposition', 'attachment; filename=ai-translator.zip');
     
     // 创建zip压缩流
     const archive = archiver('zip', { zlib: { level: 9 } });
