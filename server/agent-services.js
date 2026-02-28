@@ -365,10 +365,12 @@ class TestService {
         
         let browser;
         try {
-            // 启动浏览器
+            // 启动浏览器 - 使用系统Chromium
+            const executablePath = process.env.CHROME_PATH || '/usr/bin/chromium-browser';
             browser = await puppeteer.launch({
                 headless: 'new',
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                executablePath: executablePath,
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
             });
             
             const page = await browser.newPage();
