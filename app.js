@@ -64,13 +64,42 @@ const API = {
 };
 
 // ============================================
-// Data Storage
+// Data Storage (localStorage持久化)
 // ============================================
 const DB = {
     feedbacks: [],
     processingQueue: [],
-    commits: 0
+    commits: 0,
+    
+    // 加载数据
+    load() {
+        try {
+            const saved = localStorage.getItem('translatePluginDB');
+            if (saved) {
+                const data = JSON.parse(saved);
+                this.feedbacks = data.feedbacks || [];
+                this.commits = data.commits || 0;
+            }
+        } catch (e) {
+            console.error('加载数据失败:', e);
+        }
+    },
+    
+    // 保存数据
+    save() {
+        try {
+            localStorage.setItem('translatePluginDB', JSON.stringify({
+                feedbacks: this.feedbacks,
+                commits: this.commits
+            }));
+        } catch (e) {
+            console.error('保存数据失败:', e);
+        }
+    }
 };
+
+// 页面加载时恢复数据
+DB.load();
 
 // Generate user hash
 function generateUserHash() {
@@ -176,6 +205,7 @@ async function submitFeedback(content) {
 
     // 保存到本地数据库
     DB.feedbacks.unshift(newFeedback);
+    DB.save();
     
     // 渲染反馈列表
     renderFeedbackList();
@@ -296,6 +326,7 @@ function renderFeedbackList(filter = 'all') {
             const feedback = DB.feedbacks.find(f => f.id === id);
             if (feedback) {
                 feedback.likes++;
+                DB.save();
                 renderFeedbackList(filter);
             }
         });
