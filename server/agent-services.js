@@ -365,8 +365,29 @@ class TestService {
         
         let browser;
         try {
-            // 启动浏览器 - 使用系统Chromium
-            const executablePath = process.env.CHROME_PATH || '/usr/bin/chromium-browser';
+            // 启动浏览器 - 尝试多个可能的Chrome路径
+            const possiblePaths = [
+                process.env.CHROME_PATH,
+                '/usr/bin/google-chrome',
+                '/usr/bin/chromium-browser',
+                '/usr/bin/chromium'
+            ];
+            
+            let executablePath = null;
+            const fs = require('fs');
+            for (const p of possiblePaths) {
+                if (p && fs.existsSync(p)) {
+                    executablePath = p;
+                    break;
+                }
+            }
+            
+            if (!executablePath) {
+                throw new Error('Chrome executable not found');
+            }
+            
+            console.log('[TestService] 使用Chrome:', executablePath);
+            
             browser = await puppeteer.launch({
                 headless: 'new',
                 executablePath: executablePath,
