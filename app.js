@@ -398,15 +398,19 @@ function escapeHtml(text) {
 // Update stats
 function updateStats() {
     const today = DB.feedbacks.filter(f => {
-        const today = new Date().toDateString();
-        return new Date(f.timestamp).toDateString() === today;
+        const todayStr = new Date().toDateString();
+        return new Date(f.timestamp).toDateString() === todayStr;
     });
 
     const pending = DB.feedbacks.filter(f => f.status === 'pending').length;
 
-    document.getElementById('todayFeedback').textContent = `${today.length}条`;
-    document.getElementById('pendingFeedback').textContent = `${pending}条`;
-    document.getElementById('todayCount').textContent = today.length;
+    const todayEl = document.getElementById('todayFeedback');
+    const pendingEl = document.getElementById('pendingFeedback');
+    const countEl = document.getElementById('todayCount');
+    
+    if (todayEl) todayEl.textContent = `${today.length}条`;
+    if (pendingEl) pendingEl.textContent = `${pending}条`;
+    if (countEl) countEl.textContent = today.length;
 }
 
 // ============================================
