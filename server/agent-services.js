@@ -370,20 +370,29 @@ class TestService {
                 process.env.CHROME_PATH,
                 '/usr/bin/google-chrome',
                 '/usr/bin/chromium-browser',
-                '/usr/bin/chromium'
-            ];
+                '/usr/bin/chromium',
+                '/opt/google/chrome/google-chrome',
+                process.env.CHROME_BIN
+            ].filter(Boolean); // 过滤掉undefined/null
+            
+            const fs = require('fs');
+            
+            // 调试：打印所有尝试的路径
+            console.log('[TestService] 尝试的Chrome路径:', possiblePaths);
+            console.log('[TestService] CHROME_PATH环境变量:', process.env.CHROME_PATH);
+            console.log('[TestService] CHROME_BIN环境变量:', process.env.CHROME_BIN);
             
             let executablePath = null;
-            const fs = require('fs');
             for (const p of possiblePaths) {
                 if (p && fs.existsSync(p)) {
                     executablePath = p;
+                    console.log('[TestService] 找到Chrome:', p);
                     break;
                 }
             }
             
             if (!executablePath) {
-                throw new Error('Chrome executable not found');
+                throw new Error('Chrome executable not found. 已尝试路径: ' + possiblePaths.join(', '));
             }
             
             console.log('[TestService] 使用Chrome:', executablePath);
