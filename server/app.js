@@ -744,9 +744,9 @@ app.post('/api/agent/process/stream', async (req, res) => {
             // 添加超时保护
             const processPromise = agent.process(feedback);
             
-            // 添加超时处理 - 60秒超时（增加超时时间）
+            // 添加超时处理 - 120秒超时（测试需要更长时间）
             const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('智能体处理超时（60秒）')), 60000);
+                setTimeout(() => reject(new Error('智能体处理超时（120秒）')), 120000);
             });
             
             Promise.race([processPromise, timeoutPromise]).then(async (result) => {
