@@ -722,12 +722,18 @@ class Agent {
         console.log(`[智能体] 步骤2: 生成改进方案...`);
         console.log('[智能体] 分析结果:', analysisResult);
         
-        const solutionResult = await this.solutionGenerator.generate({ feedbackId, ...analysisResult.structuredResult });
-        console.log('[智能体] 方案生成结果:', solutionResult);
+        let solutionResult;
+        try {
+            solutionResult = await this.solutionGenerator.generate({ feedbackId, ...analysisResult.structuredResult });
+            console.log('[智能体] 方案生成结果:', solutionResult);
+        } catch (err) {
+            console.error('[智能体] 方案生成异常:', err.message);
+            return { success: false, feedbackId, stage: 'solution', error: err.message, duration: Date.now() - startTime };
+        }
         
         if (!solutionResult.success) {
-            console.log('[智能体] 方案生成失败，返回错误');
-            return { success: false, feedbackId, stage: 'solution', error: solutionResult.reason, duration: Date.now() - startTime };
+            console.log('[智能体] 方案生成失败，返回错误:', solutionResult.reason);
+            return { success: false, feedbackId, stage: 'solution', error: solutionResult.reason || '方案生成失败', duration: Date.now() - startTime };
         }
         
         console.log('[智能体] 方案生成成功，准备进入步骤3');
