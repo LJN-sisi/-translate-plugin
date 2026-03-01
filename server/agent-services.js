@@ -206,6 +206,8 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const GITHUB_REPO = 'https://github.com/LJN-sisi/-translate-plugin';
+// GitHub Token（需要配置才能推送）
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 // 使用ai-translator目录作为工作目录（插件目录）
 const WORK_DIR = path.join(__dirname, '..', 'ai-translator');
 
@@ -296,10 +298,17 @@ class CodeModifier {
                     
                     // 推送到GitHub main分支
                     try {
-                        execSync(`git push origin main`, { cwd: this.repoDir, stdio: 'pipe' });
+                        if (GITHUB_TOKEN) {
+                            // 使用Token推送
+                            execSync(`git push https://${GITHUB_TOKEN}@github.com/LJN-sisi/-translate-plugin.git main`, { cwd: this.repoDir, stdio: 'pipe' });
+                        } else {
+                            // 无Token时尝试普通推送
+                            execSync(`git push origin main`, { cwd: this.repoDir, stdio: 'pipe' });
+                        }
                         console.log(`[CodeModifier] 已推送到GitHub`);
                     } catch (pushErr) {
-                        console.log(`[CodeModifier] 推送失败，可能需要配置GitHub Token:`, pushErr.message);
+                        console.log(`[CodeModifier] 推送失败:`, pushErr.message);
+                        console.log(`[CodeModifier] 提示: 请配置GITHUB_TOKEN环境变量来启用自动推送`);
                     }
                 } catch (e) {
                     console.log('[CodeModifier] 提交失败:', e.message);
