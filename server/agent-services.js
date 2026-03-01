@@ -717,19 +717,28 @@ class Agent {
         // 步骤1：分析反馈
         console.log(`[智能体] 步骤1: 分析反馈...`);
         const analysisResult = await this.analyzer.analyze(feedback);
+        console.log('[智能体] 分析完成，结果:', JSON.stringify(analysisResult).substring(0, 200));
         
         if (!analysisResult.success) {
+            console.log('[智能体] 分析失败，返回');
             return { success: false, feedbackId, stage: 'analysis', error: analysisResult.reason, fallback: true, duration: Date.now() - startTime };
         }
         
         if (!analysisResult.canAutoImprove) {
+            console.log('[智能体] 不可自动改进');
             await database.updateFeedback(feedbackId, { status: 'needs_human', analysis: analysisResult.analysis });
             return { success: true, feedbackId, stage: 'analysis', needsHuman: true, analysis: analysisResult.analysis, duration: Date.now() - startTime };
         }
         
         // 步骤2：生成改进方案
         console.log(`[智能体] 步骤2: 生成改进方案...`);
-        console.log('[智能体] 分析结果:', analysisResult);
+        console.log('[智能体] structuredResult:', analysisResult.structuredResult);
+        
+        // 安全检查
+        if (!analysisResult.structuredResult) {
+            console.log('[智能体] structuredResult为空，使用默认');
+            analysisResult.structuredResult = { intent: 'other', summary: feedback.content };
+        }
         
         let solutionResult;
         try {
@@ -737,6 +746,7 @@ class Agent {
             console.log('[智能体] 方案生成结果:', solutionResult);
         } catch (err) {
             console.error('[智能体] 方案生成异常:', err.message);
+            console.error('[智能体] 异常堆栈:', err.stack);
             return { success: false, feedbackId, stage: 'solution', error: err.message, duration: Date.now() - startTime };
         }
         
